@@ -5,6 +5,18 @@
   "windows": ["main"],
   "permissions": [
     "core:default",
-    "opener:default"
+    "opener:default",
+    {
+      "identifier": "sql:allow-load",
+      "allow": [{ "url": "sqlite:lineage.db" }]
+    },
+    {
+      "identifier": "sql:allow-execute",
+      "allow": [{ "url": "sqlite:lineage.db" }]
+    },
+    {
+      "identifier": "sql:allow-select",
+      "allow": [{ "url": "sqlite:lineage.db" }]
+    }
   ]
 }
