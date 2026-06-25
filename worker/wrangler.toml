@@ -3,20 +3,41 @@ main = "index.ts"
 compatibility_date = "2026-06-01"
 
 # D1 (SQLite 互換)。スキーマは db/schema.sql と同一内容を worker/migrations に置く。
+#   wrangler d1 create lineage  →  出力された database_id を下記へ設定
 #   wrangler d1 migrations apply lineage
 [[d1_databases]]
 binding = "DB"
 database_name = "lineage"
+# 期待値: wrangler d1 create lineage 実行時に表示される UUID
+#   例: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
 database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
 migrations_dir = "migrations"
 
-# 認証(スタブ配線): 下記を設定すると Worker の JWT 検証が有効化される。
-# 未設定なら認証なしで動作し actor="anonymous" になる。
+# ── 環境変数（平文で公開可能な値）────────────────────────────────────────────
+# 未設定の場合は JWT 検証をスキップし actor="anonymous" で動作する。
 [vars]
-# SUPABASE_JWKS_URL = "https://<project-ref>.supabase.co/auth/v1/.well-known/jwks.json"
-# SUPABASE_JWT_ISSUER = "https://<project-ref>.supabase.co/auth/v1"
+# Supabase プロジェクトの JWKS エンドポイント（公開鍵取得用）。
+# Supabase Dashboard > Project Settings > API > Project URL から導出。
+# 期待値: "https://<project-ref>.supabase.co/auth/v1/.well-known/jwks.json"
+SUPABASE_JWKS_URL = ""
 
-# R2 添付ストレージは今回スコープ外（後続）。
+# Supabase が発行する JWT の issuer クレームに一致させる URL。
+# 期待値: "https://<project-ref>.supabase.co/auth/v1"
+SUPABASE_JWT_ISSUER = ""
+
+# ── シークレット（wrangler secret put で設定する。toml には値を書かない）────
+#
+# 現バージョンのワーカーにシークレット変数はありません。
+#
+# 将来 Supabase Admin API（ユーザー管理・サーバーサイドメール送信など）を
+# 呼び出す場合は以下のコマンドで設定する:
+#
+#   wrangler secret put SUPABASE_SERVICE_ROLE_KEY
+#     → Supabase Dashboard > Project Settings > API > service_role (secret) の値を入力
+#
+# ※ service_role キーはスーパー権限なので絶対に [vars] やソースコードに書かない。
+
+# ── R2 添付ストレージ（後続スコープ）──────────────────────────────────────────
 # [[r2_buckets]]
 # binding = "BUCKET"
 # bucket_name = "lineage-files"
