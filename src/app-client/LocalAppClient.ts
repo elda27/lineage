@@ -1,3 +1,4 @@
+import { isTauri } from "@tauri-apps/api/core";
 import Database from "@tauri-apps/plugin-sql";
 import schemaSql from "../../db/schema.sql?raw";
 
@@ -26,6 +27,18 @@ export async function createLocalAppClient(
   workspaceId: string,
   workspaceName = "My Workspace"
 ): Promise<ApplicationPort> {
+  // ローカル接続は Tauri の SQL プラグイン(@tauri-apps/plugin-sql)に依存する。
+  // 素のブラウザ(例: `pnpm dev` を localhost:1420 で直接開いた場合)では
+  // window.__TAURI_INTERNALS__ が無く invoke が undefined になるため、
+  // 「Cannot read properties of undefined (reading 'invoke')」という分かりにくい
+  // エラーになる。Tauri ランタイム外であることを明示して原因を示す。
+  if (!isTauri()) {
+    throw new Error(
+      "ローカル接続は Tauri アプリ内でのみ利用できます。`pnpm tauri dev` で起動するか、" +
+        "ブラウザで動かす場合は VITE_APP_MODE=cloud（クラウド接続）を指定してください。"
+    );
+  }
+
   const db = await Database.load("sqlite:lineage.db");
   await applySchema(db);
   await ensureWorkspace(db, workspaceId, workspaceName);
