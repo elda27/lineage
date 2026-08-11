@@ -1,0 +1,138 @@
+# Publish a GitHub Release -> build the Windows installers and attach them to it.
+#
+# minos  : cargo build --release, then packaged into an MSI with the WiX toolset
+#          (same command as the `just msi` recipe).
+# fullos : `tauri build --bundles msi` (Tauri bundles MSI through WiX too) plus
+#          the updater artifacts (.msi.sig + latest.json) that fullos' in-app
+#          updater downloads from this release.
+#
+# Both jobs upload into the release that triggered the run, so publishing a
+# release is the only manual step.
+name: release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to (re)build and upload to, e.g. v0.1.0"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.resolve.outputs.tag }}
+      version: ${{ steps.resolve.outputs.version }}
+      release_id: ${{ steps.resolve.outputs.release_id }}
+    steps:
+      - id: resolve
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-+].*)?$ ]]; then
+            echo "::error::tag '$TAG' is not a vX.Y.Z release tag"
+            exit 1
+          fi
+          release_id="$(gh release view "$TAG" --json databaseId --jq .databaseId)"
+          {
+            echo "tag=$TAG"
+            echo "version=$version"
+            echo "release_id=$release_id"
+          } >> "$GITHUB_OUTPUT"
+
+  minos:
+    needs: prepare
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.tag }}
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: minos
+
+      - name: Set version from tag
+        run: node .github/scripts/set-version.mjs ${{ needs.prepare.outputs.version }}
+
+      - name: Build minos
+        working-directory: minos
+        run: cargo build --release
+
+      - name: Install the WiX toolset
+        run: |
+          dotnet tool install --global wix --version 5.*
+          Add-Content -Path $env:GITHUB_PATH -Value "$env:USERPROFILE\.dotnet\tools"
+
+      - name: Package the MSI
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          New-Item -ItemType Directory -Force ./minos/target/wix | Out-Null
+          wix build ./minos/wix/minos.wxs `
+            -b ./minos/target/release `
+            -d Version=$env:VERSION `
+            -o "./minos/target/wix/minos_${env:VERSION}_x64_en-US.msi"
+
+      - name: Attach the MSI to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          gh release upload ${{ needs.prepare.outputs.tag }} `
+            "./minos/target/wix/minos_${env:VERSION}_x64_en-US.msi" --clobber
+
+  fullos:
+    needs: prepare
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.tag }}
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+          package_json_file: fullos/package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: fullos/src-tauri
+
+      - name: Set version from tag
+        run: node .github/scripts/set-version.mjs ${{ needs.prepare.outputs.version }}
+
+      - name: Install dependencies
+        working-directory: fullos
+        run: pnpm install --no-frozen-lockfile
+
+      # Builds the MSI, signs it with the updater key and uploads the bundle,
+      # its .sig and latest.json to the release.
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: fullos
+          tauriScript: pnpm tauri
+          tagName: ${{ needs.prepare.outputs.tag }}
+          releaseId: ${{ needs.prepare.outputs.release_id }}
+          # latest.json must point at the WiX MSI, not the NSIS setup.exe.
+          updaterJsonPreferNsis: false
+          args: --bundles msi

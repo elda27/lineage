@@ -1,0 +1,5 @@
+# pnpm 11 はビルドスクリプトの許可リストをここから読む。
+# 未承認のスクリプトがあると `pnpm build` / `pnpm tauri build` が
+# ERR_PNPM_IGNORED_BUILDS で止まるため、vite が使う esbuild を明示的に許可する。
+allowBuilds:
+  esbuild: true
