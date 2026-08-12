@@ -23,7 +23,9 @@ use gpui_component::{ActiveTheme, Sizable, StyledExt, h_flex, v_flex};
 
 use crate::app::Services;
 use crate::domain::capture::CaptureContext;
-use crate::domain::meta::{MetaAssignment, MetaSource, auto_label, parse_meta_tags};
+use crate::domain::meta::{
+    MetaAssignment, MetaSource, auto_label, split_completed_tags,
+};
 use crate::infrastructure::system::foreground;
 use crate::infrastructure::system::{ForegroundApp, SelectionCapture};
 use crate::presentation::meta_completion::MetaCompletionProvider;
@@ -213,21 +215,17 @@ impl CaptureView {
         }
     }
 
-    /// 空白などで確定した `#タグ` を本文から取り除き、バッジへ移す。
+    /// 空白で確定した `#タグ` を本文から取り除き、バッジへ移す。
+    ///
+    /// 打ち終える前のタグは本文に残す（[`split_completed_tags`] 参照）。
     fn promote_completed_tags(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let value = self.input.read(cx).value().to_string();
-        let mut body = value.clone();
-        let mut promoted = false;
+        let (body, promoted) = split_completed_tags(&value);
+        if promoted.is_empty() {
+            return;
+        }
 
-        for token in value.split_inclusive(char::is_whitespace) {
-            let trimmed = token.trim_end_matches(char::is_whitespace);
-            let whitespace = &token[trimmed.len()..];
-            let parsed = parse_meta_tags(trimmed);
-            if !trimmed.starts_with('#') || parsed.len() != 1 {
-                continue;
-            }
-
-            let meta = parsed.into_iter().next().unwrap();
+        for meta in promoted {
             match self.tags.iter().position(|tag| tag.label == meta.label) {
                 // 同じラベルの自動メタ情報は、利用者が書いた値で置き換える。
                 Some(index) if self.tags[index].source == MetaSource::Auto => {
@@ -236,13 +234,8 @@ impl CaptureView {
                 Some(_) => {}
                 None => self.tags.push(meta),
             }
-            body = body.replacen(token, whitespace, 1);
-            promoted = true;
         }
 
-        if !promoted {
-            return;
-        }
         self.input
             .update(cx, |input, cx| input.set_value(body, window, cx));
         cx.notify();
