@@ -4088,7 +4088,7 @@ dependencies = [
 
 [[package]]
 name = "minos"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "anyhow",
  "async-channel",
