@@ -1,24 +1,43 @@
-// Rewrites the version of every packaged crate/app to the one given on argv.
+// Synchronizes every packaged crate/app with the repository's VERSION file.
 //
-//   node .github/scripts/set-version.mjs 1.2.3
+//   node .github/scripts/set-version.mjs
+//   node .github/scripts/set-version.mjs --check
+//   node .github/scripts/set-version.mjs --set 1.2.3
 //
-// The release workflow derives the version from the git tag and runs this
-// before building so that the MSI version, the Tauri bundle version and the
-// `version` field in the updater's latest.json all agree with the release.
-// It is CI-only: the rewritten files are never committed back.
+// The release workflow checks that the tag, VERSION, the MSI version, the
+// Tauri bundle version and the updater's latest.json version all agree.
 
 import { readFileSync, writeFileSync } from "node:fs";
 
-const version = process.argv[2];
-if (!version || !/^\d+\.\d+\.\d+(?:[-+].*)?$/.test(version)) {
-  console.error(`usage: set-version.mjs <semver>  (got: ${version ?? "nothing"})`);
+const args = process.argv.slice(2);
+const check = args[0] === "--check";
+const setVersion = args[0] === "--set" ? args[1] : undefined;
+if ((args.length && !check && args[0] !== "--set") || (check && args.length !== 1) || (args[0] === "--set" && args.length !== 2)) {
+  console.error("usage: set-version.mjs [--check | --set <semver>]");
   process.exit(1);
 }
 
+const version = setVersion ?? readFileSync("VERSION", "utf8").trim();
+if (!version || !/^\d+\.\d+\.\d+(?:[-+].*)?$/.test(version)) {
+  console.error(`invalid version: ${version || "nothing"}`);
+  process.exit(1);
+}
+
+if (setVersion) writeFileSync("VERSION", `${version}\n`);
+
+const changes = [];
+
+const writeOrCheck = (path, current, next) => {
+  if (current === next) return;
+  if (check) changes.push(path);
+  else writeFileSync(path, next);
+};
+
 const setJsonVersion = (path) => {
   const json = JSON.parse(readFileSync(path, "utf8"));
+  const current = `${JSON.stringify(json, null, 2)}\n`;
   json.version = version;
-  writeFileSync(path, `${JSON.stringify(json, null, 2)}\n`);
+  writeOrCheck(path, current, `${JSON.stringify(json, null, 2)}\n`);
 };
 
 // Replaces the `version` key of the [package] table only, so dependency
@@ -36,7 +55,7 @@ const setCargoVersion = (path) => {
     return line;
   });
   if (!done) throw new Error(`no [package] version found in ${path}`);
-  writeFileSync(path, patched.join("\n"));
+  writeOrCheck(path, lines.join("\n"), patched.join("\n"));
 };
 
 setJsonVersion("fullos/package.json");
@@ -44,4 +63,9 @@ setJsonVersion("fullos/src-tauri/tauri.conf.json");
 setCargoVersion("fullos/src-tauri/Cargo.toml");
 setCargoVersion("minos/Cargo.toml");
 
-console.log(`version set to ${version}`);
+if (changes.length) {
+  console.error(`version ${version} is not synchronized: ${changes.join(", ")}`);
+  process.exit(1);
+}
+
+console.log(check ? `version ${version} is synchronized` : `version synchronized to ${version}`);

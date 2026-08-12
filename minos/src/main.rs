@@ -94,7 +94,15 @@ fn main() {
                         *view_slot.borrow_mut() = Some(view.clone());
 
                         // 閉じるボタンで終了せず、タスクトレイに残る（docs/ui.md）。
-                        window.on_window_should_close(cx, move |_window, _cx| {
+                        //
+                        // ただし OS のシャットダウンやインストーラ（Restart Manager）からの
+                        // 終了要求も同じ WM_CLOSE で届く。これを拒むと minos は止まらず、
+                        // トレイの隠しウィンドウだけが破棄されて「トレイに居ないプロセス」が残る。
+                        window.on_window_should_close(cx, move |_window, cx| {
+                            if tray::session_ending() {
+                                cx.quit();
+                                return true;
+                            }
                             app_window.hide();
                             false
                         });

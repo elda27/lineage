@@ -20,6 +20,7 @@ Windows 向け配布は GitHub Release を単一の配布元とする。
 | `%ProgramFiles%\lineage\minos.exe`               | `cargo build --release`（`bundle.resources` で同梱）      |
 | スタートメニュー `lineage\fullos`                | [fullos/src-tauri/wix/main.wxs](../fullos/src-tauri/wix/main.wxs)   |
 | スタートメニュー `lineage\Minos`                 | [fullos/src-tauri/wix/minos.wxs](../fullos/src-tauri/wix/minos.wxs) |
+| `HKLM\...\CurrentVersion\Run` の `lineage Minos` | [fullos/src-tauri/wix/minos.wxs](../fullos/src-tauri/wix/minos.wxs) |
 
 スタートメニューのショートカット名を `lineage` ではなく `fullos` にするため、Tauri の
 WiX テンプレートを [fullos/src-tauri/wix/main.wxs](../fullos/src-tauri/wix/main.wxs) に
@@ -36,26 +37,67 @@ tauri-cli v2.11.4 の `crates/tauri-bundler/src/bundle/windows/msi/main.wxs` で
 minos.exe は
 [fullos/src-tauri/tauri.conf.json](../fullos/src-tauri/tauri.conf.json) の
 `build.beforeBuildCommand` でビルドされ（`cargo build --release --manifest-path ../minos/Cargo.toml`）、
-`bundle.resources` でインストール先直下に入る。ショートカットだけは Tauri が
+`bundle.resources` でインストール先直下に入る。ショートカットと自動起動だけは Tauri が
 生成するコンポーネントから参照できないので、WiX フラグメントを 1 枚足して
 `bundle.windows.wix.fragmentPaths` / `componentGroupRefs` から読ませている。
 Tauri v2 の MSI は WiX v3 なので、フラグメントのスキーマは `wix/2006/wi`（v4/v5 ではない）。
 
+## minos の自動起動
+
+minos はトレイ常駐 + Alt+Space のアプリなので、起動していないと呼び出せない。
+インストーラが `HKLM\Software\Microsoft\Windows\CurrentVersion\Run` に
+`lineage Minos` = `"%ProgramFiles%\lineage\minos.exe"` を書き、次回以降の
+Windows ログオンで自動的に常駐する（`MinosAutoStart` コンポーネントグループ）。
+アンインストールするとこの値も消える。
+
+### フラグメントでは handlebars の変数が使えない
+
+`fragmentPaths` のファイルは handlebars に **パースはされるが展開はされない**。
+二重波括弧の記法を書くと構文としては検証され、壊れているとビルドが落ちる。
+一方で main.wxs で使える `{{manufacturer}}` / `{{product_name}}` などの値は解決されず、
+書いた文字列がそのまま MSI に入る。
+
+実際 minos.wxs で `Key="Software\{{manufacturer}}\{{product_name}}"` と書いていたため、
+インストールすると literal な `HKCU\Software\{{manufacturer}}\{{product_name}}` が
+作られていた。現在は実値（`Software\lineage\lineage`）を直接書いてある。
+`productName` / `identifier` を変えたらこのファイルも手で追随させること。
+
+`manufacturer` はどこにも書いていない。tauri-utils の定義どおり `identifier`
+（`com.lineage.fullos`）の 2 番目の要素から導出されるので `lineage` になる。
+明示したい場合は `bundle.publisher` を設定する（レジストリキーのパスも変わる）。
+
+Run 値を HKCU ではなく HKLM に置いているのは、この MSI が `InstallScope="perMachine"` で、
+レジストリの書き込みを昇格した deferred アクション（= SYSTEM）が行うため。HKCU だと
+インストールしたユーザのハイブに落ちる保証がない。代わりにこのマシンへログオンする
+全ユーザで minos が起動する。perUser インストールに変えるなら HKCU へ移すこと。
+
+インストール直後には起動しない（自動起動は次のログオンから）。すぐ使いたい場合は
+スタートメニューの `lineage\Minos` から起動する。多重起動は minos 側の名前付き Mutex で
+抑止されるので、ログオン起動と併用しても増えない
+（[minos/src/infrastructure/system/single_instance.rs](../minos/src/infrastructure/system/single_instance.rs)）。
+
+## 自動更新と minos
+
 1 本になったので、fullos の自動更新は minos も一緒に置き換える。
 更新時に minos が起動したままだと MSI が使用中ファイルを差し替えられず、
-サイレント適用では再起動待ちになる。更新前に minos を終了させておくのが確実。
+サイレント適用では再起動待ちになる。自動起動で常駐しているぶん残りやすいので、
+更新前に minos を終了させておくのが確実。
 
 ## リリース手順
 
+アプリのバージョンはリポジトリ直下の [`VERSION`](../VERSION) で中央管理する。
+変更時は `just version-set X.Y.Z` を実行すると、`package.json`、両方の
+`Cargo.toml`、`tauri.conf.json` に同じ値が反映される。整合性だけを確認する場合は
+`just version-check` を使う。リリースタグ `vX.Y.Z` は `VERSION` と一致していなければならない。
+
 1. GitHub で `vX.Y.Z` タグのリリースを作成して publish する。
-2. workflow がタグからバージョンを決め（`.github/scripts/set-version.mjs` が
-   `minos/Cargo.toml` / `fullos/package.json` / `fullos/src-tauri/tauri.conf.json` /
-   `fullos/src-tauri/Cargo.toml` を書き換える。コミットはしない）、MSI をビルドして
-   同じリリースへアップロードする。
+2. workflow がタグ、`VERSION`、各マニフェストのバージョンが一致することを
+   `.github/scripts/set-version.mjs --check` で検査し、MSI をビルドして同じリリースへ
+   アップロードする。
 3. 失敗したジョブを直したら、`workflow_dispatch` にタグを渡して同じリリースへ再アップロードできる。
 
 タグは `vX.Y.Z` 形式であること。MSI のバージョンと `latest.json` の `version` は
-このタグから決まるので、タグとアプリのバージョン表記がずれることはない。
+`VERSION` から決まる。タグと一致しない場合はビルド前に workflow が失敗する。
 
 ## 初回だけ必要な設定：updater の署名鍵
 

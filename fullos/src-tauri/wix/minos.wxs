@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  Minos の Start Menu ショートカット。
+  Minos の Start Menu ショートカットとログオン時の自動起動。
 
   minos.exe 自体は tauri.conf.json の `bundle.resources` で INSTALLDIR 直下に
   入る（Tauri がコンポーネントを自動生成する）。そのコンポーネントの Id は
@@ -9,8 +9,15 @@
   （ApplicationProgramsFolder）にぶら下げている。
 
   Tauri v2 の MSI は WiX v3 (candle/light) なのでスキーマは wix/2006/wi。
-  {{product_name}} などは Tauri が handlebars で埋める。
   tauri.conf.json の bundle.windows.wix.fragmentPaths / componentGroupRefs から参照。
+
+  注意: このファイルは handlebars に「パースはされるが展開はされない」。
+  二重波括弧の変数記法を書くと構文としては検証され、壊れているとビルドが落ちる。
+  一方で main.wxs で使える manufacturer / product_name などの値はここでは
+  解決されず、書いた文字列がそのまま MSI に入る（実際に literal な
+  HKCU\Software\<二重波括弧の manufacturer> がレジストリに残った）。
+  よってここでは値を直接書く。tauri.conf.json の productName / identifier を
+  変えたらこのファイルも手で追随させること。
 -->
 <?if $(sys.BUILDARCH)="x86"?>
     <?define Win64 = "no" ?>
@@ -29,9 +36,15 @@
               KeyPath がレジストリ値なので Guid="*"（File から導出）は使えず、固定 GUID を置く。
               アンインストール時の ApplicationProgramsFolder 削除は Tauri 側の
               ApplicationShortcut コンポーネントが持っているのでここでは触らない。
+
+              Key は main.wxs 側（Software\<manufacturer>\<product_name>）に合わせた実値。
+              manufacturer は tauri.conf.json の identifier "com.lineage.fullos" の
+              2 番目の要素から Tauri が導出するので lineage、product_name も lineage。
+              以前ここに変数記法を書いていたが展開されず literal なキーが残っていた
+              （ファイル冒頭の注意を参照）。KeyPath を差し替えたので Guid も振り直してある。
             -->
             <Component Id="MinosStartMenuShortcut"
-                       Guid="D6E1F1FF-20E2-4D83-AA9A-652E806D8D06"
+                       Guid="0B5AC74B-BD69-4EDD-ABE3-F6B045395D0D"
                        Win64="$(var.Win64)">
                 <Shortcut Id="MinosStartMenuShortcut"
                           Name="Minos"
@@ -39,10 +52,39 @@
                           Target="[INSTALLDIR]minos.exe"
                           WorkingDirectory="INSTALLDIR" />
                 <RegistryValue Root="HKCU"
-                               Key="Software\{{manufacturer}}\{{product_name}}"
+                               Key="Software\lineage\lineage"
                                Name="Minos Start Menu Shortcut"
                                Type="integer"
                                Value="1"
+                               KeyPath="yes" />
+            </Component>
+        </ComponentGroup>
+    </Fragment>
+
+    <!--
+      ログオン時に minos.exe を常駐させる。minos はトレイ常駐 + Alt+Space の
+      アプリなので、起動していないと呼び出せない。
+
+      Run 値は HKLM に置く。この MSI は main.wxs で InstallScope="perMachine" なので
+      レジストリの書き込みは昇格した deferred アクション（= SYSTEM）が行い、HKCU は
+      インストールしたユーザのハイブに落ちる保証がない。HKLM\...\Run ならこのマシンに
+      ログオンする全ユーザで確実に起動する。perUser インストールに変えるなら HKCU へ移すこと。
+
+      多重起動は minos 側の名前付き Mutex で抑止されるので、ショートカットから
+      追加で起動されても増殖しない（minos/src/infrastructure/system/single_instance.rs）。
+      値はアンインストール時にコンポーネントごと消える。
+    -->
+    <Fragment>
+        <ComponentGroup Id="MinosAutoStart" Directory="INSTALLDIR">
+            <!-- KeyPath がレジストリ値なので Guid="*" は使えず、固定 GUID を置く。 -->
+            <Component Id="MinosRunAtLogon"
+                       Guid="549A13DE-29FE-4CD8-9427-D9BE78878C50"
+                       Win64="$(var.Win64)">
+                <RegistryValue Root="HKLM"
+                               Key="Software\Microsoft\Windows\CurrentVersion\Run"
+                               Name="lineage Minos"
+                               Type="string"
+                               Value="&quot;[INSTALLDIR]minos.exe&quot;"
                                KeyPath="yes" />
             </Component>
         </ComponentGroup>

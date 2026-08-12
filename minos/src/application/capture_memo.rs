@@ -24,6 +24,8 @@ pub struct CaptureMemoInput {
     pub workspace_id: String,
     pub workspace_name: String,
     pub body: String,
+    /// 入力欄で確定済みのユーザタグ。
+    pub user_metas: Vec<MetaAssignment>,
     /// 直前に開いていたアプリケーションの情報（取得できた場合）。
     pub context: Option<CaptureContext>,
 }
@@ -69,7 +71,11 @@ impl<'a> CaptureMemo<'a> {
 
         let now = self.clock.now_rfc3339();
         let document = DocumentAsset::memo(self.ids.new_id(), &input.workspace_id, body, &now);
-        let metas = collect_metas(&document.body_text, input.context.as_ref());
+        let metas = collect_metas(
+            &document.body_text,
+            &input.user_metas,
+            input.context.as_ref(),
+        );
 
         // 自動付与の app が取れていれば、その文脈を lineage の source にする。
         let (source_kind, source_id) = match input.context.as_ref() {
@@ -129,8 +135,17 @@ impl<'a> CaptureMemo<'a> {
 /// 自動付与のメタ情報と、本文中の `#タグ` をまとめる。
 ///
 /// 同じラベルが両方に現れた場合はユーザ入力を優先する（自動値で上書きしない）。
-fn collect_metas(body: &str, context: Option<&CaptureContext>) -> Vec<MetaAssignment> {
-    let mut metas = parse_meta_tags(body);
+fn collect_metas(
+    body: &str,
+    user_metas: &[MetaAssignment],
+    context: Option<&CaptureContext>,
+) -> Vec<MetaAssignment> {
+    let mut metas = user_metas.to_vec();
+    for meta in parse_meta_tags(body) {
+        if !metas.iter().any(|existing| existing.label == meta.label) {
+            metas.push(meta);
+        }
+    }
     if let Some(context) = context {
         for auto in context.auto_metas() {
             if !metas.iter().any(|m| m.label == auto.label) {
@@ -172,6 +187,7 @@ mod tests {
                     workspace_id: "ws".into(),
                     workspace_name: "minos".into(),
                     body: body.into(),
+                    user_metas: Vec::new(),
                     context,
                 })
                 .unwrap()
@@ -191,6 +207,23 @@ mod tests {
         assert_eq!(out.title, "SOXL 損切り #投資");
         assert_eq!(out.meta_labels, vec!["投資", "app", "window"]);
         assert_eq!(out.seq, 1);
+    }
+
+    #[test]
+    fn stores_confirmed_badges_without_putting_them_in_the_body() {
+        let f = Fixture::new();
+        let out = CaptureMemo::new(&f.db, &f.clock, &f.ids, &f.hasher)
+            .execute(CaptureMemoInput {
+                workspace_id: "ws".into(),
+                workspace_name: "minos".into(),
+                body: "バッジ付きのメモ".into(),
+                user_metas: vec![MetaAssignment::user("タスク", None)],
+                context: None,
+            })
+            .unwrap();
+
+        assert_eq!(out.title, "バッジ付きのメモ");
+        assert_eq!(out.meta_labels, vec!["タスク"]);
     }
 
     #[test]
@@ -218,6 +251,7 @@ mod tests {
             workspace_id: "ws".into(),
             workspace_name: "minos".into(),
             body: "   \n ".into(),
+            user_metas: Vec::new(),
             context: None,
         });
         assert!(result.is_err());

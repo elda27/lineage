@@ -12,13 +12,14 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use gpui::prelude::*;
-use gpui::{Context, Entity, SharedString, Subscription, Window, div, px};
+use gpui::{Context, Entity, KeyDownEvent, SharedString, Subscription, Window, div, px};
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::input::{Escape, Input, InputEvent, InputState};
 use gpui_component::{ActiveTheme, Sizable, h_flex, v_flex};
 
 use crate::app::Services;
 use crate::domain::capture::CaptureContext;
+use crate::domain::meta::{MetaAssignment, parse_meta_tags};
 use crate::infrastructure::system::foreground;
 use crate::infrastructure::system::{ForegroundApp, SelectionCapture};
 use crate::presentation::meta_completion::MetaCompletionProvider;
@@ -50,6 +51,8 @@ pub struct CaptureView {
     services: Rc<Services>,
     app_window: Rc<AppWindow>,
     input: Entity<InputState>,
+    /// 本文から確定され、入力欄内にバッジとして表示するタグ。
+    tags: Vec<MetaAssignment>,
     /// 直前にフォアグラウンドだったアプリ（Alt+Space を押した瞬間に観測したもの）。
     context: Option<ForegroundApp>,
     status: Option<Status>,
@@ -77,8 +80,10 @@ impl CaptureView {
         let subscriptions = vec![cx.subscribe_in(&input, window, {
             move |this, _, event: &InputEvent, window, cx| {
                 // Ctrl+Enter（gpui-component では secondary-enter）で送信する。
-                if let InputEvent::PressEnter { secondary: true, .. } = event {
-                    this.submit(window, cx);
+                match event {
+                    InputEvent::PressEnter { secondary: true, .. } => this.submit(window, cx),
+                    InputEvent::Change => this.promote_completed_tags(window, cx),
+                    _ => {}
                 }
             }
         })];
@@ -87,6 +92,7 @@ impl CaptureView {
             services,
             app_window,
             input,
+            tags: Vec::new(),
             context: None,
             status: None,
             _subscriptions: subscriptions,
@@ -143,10 +149,14 @@ impl CaptureView {
             window_title: app.window_title.clone(),
         });
 
-        match self.services.capture(body, capture_context) {
+        match self
+            .services
+            .capture(body, self.tags.clone(), capture_context)
+        {
             Ok(output) => {
                 self.input
                     .update(cx, |input, cx| input.set_value("", window, cx));
+                self.tags.clear();
                 self.status = Some(Status::Saved {
                     title: output.title.into(),
                     seq: output.seq,
@@ -159,6 +169,61 @@ impl CaptureView {
                 cx.notify();
             }
         }
+    }
+
+    /// 空白などで確定した `#タグ` を本文から取り除き、バッジへ移す。
+    fn promote_completed_tags(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let value = self.input.read(cx).value().to_string();
+        let mut body = value.clone();
+        let mut promoted = Vec::new();
+
+        for token in value.split_inclusive(char::is_whitespace) {
+            let trimmed = token.trim_end_matches(char::is_whitespace);
+            let whitespace = &token[trimmed.len()..];
+            let parsed = parse_meta_tags(trimmed);
+            if trimmed.starts_with('#') && parsed.len() == 1 {
+                let meta = parsed.into_iter().next().unwrap();
+                if !self.tags.iter().any(|tag| tag.label == meta.label) {
+                    promoted.push(meta);
+                }
+                body = body.replacen(token, whitespace, 1);
+            }
+        }
+
+        if promoted.is_empty() {
+            return;
+        }
+        self.tags.extend(promoted);
+        self.input
+            .update(cx, |input, cx| input.set_value(body, window, cx));
+        cx.notify();
+    }
+
+    fn on_key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        if event.keystroke.key == "backspace"
+            && self.input.read(cx).value().is_empty()
+            && self.tags.pop().is_some()
+        {
+            window.prevent_default();
+            cx.stop_propagation();
+            cx.notify();
+        }
+    }
+
+    fn render_tags(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        h_flex().gap_1().flex_wrap().children(self.tags.iter().map(|tag| {
+            let text = match &tag.value {
+                Some(value) => format!("#{}={value}", tag.label),
+                None => format!("#{}", tag.label),
+            };
+            div()
+                .px_2()
+                .py_0p5()
+                .rounded_md()
+                .text_xs()
+                .bg(cx.theme().secondary)
+                .child(text)
+        }))
     }
 
     /// 保存の表示を残してからタスクトレイに戻す。
@@ -321,12 +386,13 @@ impl Render for CaptureView {
             .key_context("Minos")
             // 入力欄が処理しなかった Esc だけがここに届く（補完中は補完が閉じるだけ）。
             .on_action(cx.listener(|this, _: &Escape, _window, cx| this.dismiss(cx)))
+            .on_key_down(cx.listener(Self::on_key_down))
             .size_full()
             .p_4()
             .gap_3()
             .bg(cx.theme().background)
             .child(self.render_context_bar(cx))
-            .child(Input::new(&self.input))
+            .child(Input::new(&self.input).prefix(self.render_tags(cx)))
             .child(
                 h_flex()
                     .justify_between()

@@ -14,7 +14,7 @@ use crate::application::settings::{LoadSettings, SaveSettings};
 use crate::application::verify_lineage::VerifyLineage;
 use crate::domain::capture::CaptureContext;
 use crate::domain::lineage::VerifyResult;
-use crate::domain::meta::MetaSuggestion;
+use crate::domain::meta::{MetaAssignment, MetaSuggestion};
 use crate::domain::settings::Settings;
 use crate::infrastructure::clock::{SystemClock, UuidGenerator};
 use crate::infrastructure::crypto::Sha256Hasher;
@@ -48,6 +48,7 @@ impl Services {
     pub fn capture(
         &self,
         body: String,
+        user_metas: Vec<MetaAssignment>,
         context: Option<CaptureContext>,
     ) -> Result<CaptureMemoOutput> {
         CaptureMemo::new(&self.database, &self.clock, &self.ids, &self.hasher).execute(
@@ -55,6 +56,7 @@ impl Services {
                 workspace_id: self.workspace_id.clone(),
                 workspace_name: DEFAULT_WORKSPACE_NAME.to_string(),
                 body,
+                user_metas,
                 context,
             },
         )

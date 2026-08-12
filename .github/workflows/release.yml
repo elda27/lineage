@@ -74,7 +74,13 @@ jobs:
             minos
 
       - name: Set version from tag
-        run: node .github/scripts/set-version.mjs ${{ needs.prepare.outputs.version }}
+        shell: pwsh
+        run: |
+          $expected = (Get-Content VERSION -Raw).Trim()
+          if ($expected -ne '${{ needs.prepare.outputs.version }}') {
+            throw "release tag version '${{ needs.prepare.outputs.version }}' does not match VERSION '$expected'"
+          }
+          node .github/scripts/set-version.mjs --check
 
       - name: Install dependencies
         working-directory: fullos

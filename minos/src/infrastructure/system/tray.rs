@@ -4,22 +4,41 @@
 //! gpui のループには相乗りできないため、専用スレッドを1本立てて所有させ、
 //! 結果だけをチャネルで gpui 側へ渡す。
 
+use std::ffi::c_void;
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use anyhow::{Context, Result};
 use async_channel::{Receiver, Sender};
 use tray_icon::menu::{CheckMenuItem, Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem};
 use tray_icon::{Icon, TrayIcon, TrayIconBuilder, TrayIconEvent};
-use windows::Win32::Foundation::{LPARAM, WPARAM};
+use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, WPARAM};
+use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     MOD_ALT, MOD_NOREPEAT, RegisterHotKey, UnregisterHotKey, VK_SPACE,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    DispatchMessageW, GetMessageW, MSG, PostThreadMessageW, TranslateMessage, WM_HOTKEY, WM_QUIT,
+    CREATESTRUCTW, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GWLP_USERDATA,
+    GetMessageW, GetWindowLongPtrW, MSG, PostThreadMessageW, RegisterClassW, SetWindowLongPtrW,
+    TranslateMessage, WM_CLOSE, WM_ENDSESSION, WM_HOTKEY, WM_NCCREATE, WM_NCDESTROY,
+    WM_QUERYENDSESSION, WM_QUIT, WNDCLASSW, WS_EX_TOOLWINDOW, WS_OVERLAPPED,
 };
+use windows::core::{PCWSTR, w};
 
 use crate::infrastructure::system::{SelectionCapture, SystemEvent, foreground};
 
 /// `RegisterHotKey` の識別子。プロセス内で一意ならよい。
 const HOTKEY_ID: i32 = 1;
+
+/// セッション終了要求を受け取るためのウィンドウクラス名。
+const SESSION_WINDOW_CLASS: PCWSTR = w!("minos-session-listener");
+
+/// OS（シャットダウン/ログオフ）またはインストーラ（Restart Manager）から
+/// 終了を要求されている、というフラグ。
+///
+/// 要求は各トップレベルウィンドウへ WM_QUERYENDSESSION → WM_ENDSESSION → WM_CLOSE の順で届く。
+/// 最初の問い合わせでこれを立てておき、あとから gpui のウィンドウへ届く WM_CLOSE を
+/// 「閉じるボタン」と区別できるようにする。
+static SESSION_ENDING: AtomicBool = AtomicBool::new(false);
 
 const MENU_SHOW: &str = "minos.show";
 const MENU_AUTO_PULL: &str = "minos.auto-pull";
@@ -45,6 +64,15 @@ impl SystemBridge {
             let _ = PostThreadMessageW(self.thread_id, WM_QUIT, WPARAM(0), LPARAM(0));
         }
     }
+}
+
+/// OS またはインストーラから終了を要求されているか。
+///
+/// 真のときは、閉じるボタンと同じ WM_CLOSE で来てもタスクトレイに残ってはいけない。
+/// 残るとインストーラは minos を止められず（Restart Manager がシャットダウン失敗を記録し）、
+/// トレイアイコンだけを失ったプロセスが居座ることになる。
+pub fn session_ending() -> bool {
+    SESSION_ENDING.load(Ordering::Relaxed)
 }
 
 /// ホットキーとトレイを持つスレッドを起動する。
@@ -85,6 +113,8 @@ struct SystemThread {
     auto_pull: CheckMenuItem,
     /// ドロップするとトレイアイコンが消えるので保持し続ける。
     _tray: TrayIcon,
+    /// セッション終了要求の受け口。ドロップするとウィンドウごと消える。
+    _session: SessionListener,
 }
 
 impl SystemThread {
@@ -107,6 +137,8 @@ impl SystemThread {
             None,
         );
         let tray = build_tray(&auto_pull).context("タスクトレイのアイコンを作成できません")?;
+        let session =
+            SessionListener::new(sender.clone()).context("セッション終了の監視を開始できません")?;
 
         Ok(Self {
             sender,
@@ -114,6 +146,7 @@ impl SystemThread {
             hotkey_registered,
             auto_pull,
             _tray: tray,
+            _session: session,
         })
     }
 
@@ -206,6 +239,128 @@ impl SystemThread {
             unsafe {
                 let _ = PostThreadMessageW(self.thread_id, WM_QUIT, WPARAM(0), LPARAM(0));
             }
+        }
+    }
+}
+
+/// セッション終了要求を受け取るためだけの、目に見えないウィンドウ。
+///
+/// 表示しないが**トップレベル**であることが必須。WM_QUERYENDSESSION / WM_ENDSESSION は
+/// トップレベルウィンドウにしか送られないため、`HWND_MESSAGE` 配下のメッセージ専用
+/// ウィンドウでは受け取れない。
+///
+/// gpui のウィンドウに相乗りできないのでこれを立てる。gpui は WM_CLOSE しか扱わず
+/// （`gpui_windows` の `handle_close_msg`）、閉じるボタンと終了要求を区別できない。
+struct SessionListener {
+    hwnd: HWND,
+}
+
+impl SessionListener {
+    fn new(sender: Sender<SystemEvent>) -> Result<Self> {
+        unsafe {
+            let module = GetModuleHandleW(None).context("モジュールハンドルを取得できません")?;
+            let instance = HINSTANCE(module.0);
+
+            let class = WNDCLASSW {
+                lpfnWndProc: Some(session_proc),
+                lpszClassName: SESSION_WINDOW_CLASS,
+                hInstance: instance,
+                ..Default::default()
+            };
+            // プロセス内で1度しか作らないので、登録の戻り値（アトム）は見なくてよい。
+            RegisterClassW(&class);
+
+            let hwnd = CreateWindowExW(
+                // タスクバーにも Alt+Tab にも出さない。ShowWindow を呼ばないので表示もされない。
+                WS_EX_TOOLWINDOW,
+                SESSION_WINDOW_CLASS,
+                PCWSTR::null(),
+                WS_OVERLAPPED,
+                0,
+                0,
+                0,
+                0,
+                // 親を持たせるとトップレベルでなくなり、終了要求が届かなくなる。
+                None,
+                None,
+                Some(instance),
+                Some(Box::into_raw(Box::new(sender)) as *const c_void),
+            )
+            .context("セッション監視ウィンドウを作成できません")?;
+
+            Ok(Self { hwnd })
+        }
+    }
+}
+
+impl Drop for SessionListener {
+    fn drop(&mut self) {
+        // 所有スレッドから呼ぶので WM_NCDESTROY まで同期的に走り、Sender も解放される。
+        unsafe {
+            let _ = DestroyWindow(self.hwnd);
+        }
+    }
+}
+
+/// `SessionListener` のウィンドウプロシージャ。
+///
+/// Sender は生ポインタとしてウィンドウに預ける（このウィンドウと同じ寿命）。
+unsafe extern "system" fn session_proc(
+    hwnd: HWND,
+    message: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
+    unsafe {
+        match message {
+            WM_NCCREATE => {
+                let create = &*(lparam.0 as *const CREATESTRUCTW);
+                SetWindowLongPtrW(hwnd, GWLP_USERDATA, create.lpCreateParams as isize);
+                return DefWindowProcW(hwnd, message, wparam, lparam);
+            }
+            WM_NCDESTROY => {
+                let previous = SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
+                if previous != 0 {
+                    drop(Box::from_raw(previous as *mut Sender<SystemEvent>));
+                }
+                return DefWindowProcW(hwnd, message, wparam, lparam);
+            }
+            _ => {}
+        }
+
+        let sender = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *const Sender<SystemEvent>;
+        if sender.is_null() {
+            return DefWindowProcW(hwnd, message, wparam, lparam);
+        }
+        let sender = &*sender;
+
+        match message {
+            // 「終了してよいか」には常に許可を返す。実際に終わるのは WM_ENDSESSION。
+            // ここで終了を始めると、取り消されたシャットダウンでも落ちてしまう。
+            WM_QUERYENDSESSION => {
+                SESSION_ENDING.store(true, Ordering::Relaxed);
+                log::info!("セッション終了の問い合わせを受けました");
+                LRESULT(1)
+            }
+            WM_ENDSESSION => {
+                // wParam が FALSE ならセッション終了は取り消された。
+                if wparam.0 == 0 {
+                    SESSION_ENDING.store(false, Ordering::Relaxed);
+                } else {
+                    log::info!("セッション終了に従って minos を終了します");
+                    let _ = sender.send_blocking(SystemEvent::Quit);
+                }
+                LRESULT(0)
+            }
+            // Restart Manager は WM_ENDSESSION で終わらなかったプロセスへ WM_CLOSE も送る。
+            // このウィンドウにユーザは触れないので、閉じる要求は終了要求とみなしてよい。
+            WM_CLOSE => {
+                SESSION_ENDING.store(true, Ordering::Relaxed);
+                log::info!("終了要求（WM_CLOSE）を受けて minos を終了します");
+                let _ = sender.send_blocking(SystemEvent::Quit);
+                LRESULT(0)
+            }
+            _ => DefWindowProcW(hwnd, message, wparam, lparam),
         }
     }
 }

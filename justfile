@@ -25,6 +25,19 @@ dev: install
 build-minos:
     cargo build --release --manifest-path ./minos/Cargo.toml
 
+# VERSION を唯一の入力として、各パッケージのバージョン表記を同期する。
+[doc("VERSION の値を各マニフェストへ反映する")]
+version-sync:
+    node .github/scripts/set-version.mjs
+
+[doc("各マニフェストのバージョンが VERSION と一致するか検査する")]
+version-check:
+    node .github/scripts/set-version.mjs --check
+
+[doc("リリースバージョンを変更し、各マニフェストへ反映する")]
+version-set version:
+    node .github/scripts/set-version.mjs --set {{ version }}
+
 [private]
 bundle-with target: install
     pnpm --dir ./fullos run tauri build --bundles {{ target }}
