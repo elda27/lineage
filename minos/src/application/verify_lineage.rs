@@ -46,7 +46,7 @@ mod tests {
                     workspace_id: "ws".into(),
                     workspace_name: "minos".into(),
                     body: body.into(),
-                    user_metas: Vec::new(),
+                    metas: Vec::new(),
                     context: None,
                 })
                 .unwrap();

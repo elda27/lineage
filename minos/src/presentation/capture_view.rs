@@ -5,6 +5,8 @@
 //! - テキストボックス1つと送信ボタン1つ
 //! - Ctrl+Enter で送信
 //! - `#` でメタ情報を補完（候補は過去の入力から学習したもの）
+//! - 確定したメタ情報は、自動付与ぶんも含めて入力欄の中にバッジとして並ぶ。
+//!   本文が空のときの Backspace で末尾から外せる
 //! - 直前のアプリ情報は自動メタ情報として付き、そのアプリの選択テキストも取り込める
 //!   （自動で取り込むかはトレイメニューの設定で切り替える）
 
@@ -12,14 +14,16 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use gpui::prelude::*;
-use gpui::{Context, Entity, KeyDownEvent, SharedString, Subscription, Window, div, px};
+use gpui::{
+    Context, Entity, Focusable, MouseButton, SharedString, Subscription, Window, div, px,
+};
 use gpui_component::button::{Button, ButtonVariants};
-use gpui_component::input::{Escape, Input, InputEvent, InputState};
-use gpui_component::{ActiveTheme, Sizable, h_flex, v_flex};
+use gpui_component::input::{Backspace, Escape, Input, InputEvent, InputState};
+use gpui_component::{ActiveTheme, Sizable, StyledExt, h_flex, v_flex};
 
 use crate::app::Services;
 use crate::domain::capture::CaptureContext;
-use crate::domain::meta::{MetaAssignment, parse_meta_tags};
+use crate::domain::meta::{MetaAssignment, MetaSource, auto_label, parse_meta_tags};
 use crate::infrastructure::system::foreground;
 use crate::infrastructure::system::{ForegroundApp, SelectionCapture};
 use crate::presentation::meta_completion::MetaCompletionProvider;
@@ -51,7 +55,9 @@ pub struct CaptureView {
     services: Rc<Services>,
     app_window: Rc<AppWindow>,
     input: Entity<InputState>,
-    /// 本文から確定され、入力欄内にバッジとして表示するタグ。
+    /// 入力欄内にバッジとして表示する確定済みのメタ情報。
+    ///
+    /// 自動付与（直前のアプリ）とユーザ入力の両方が並ぶ。ここから消えたものは記録にも残らない。
     tags: Vec<MetaAssignment>,
     /// 直前にフォアグラウンドだったアプリ（Alt+Space を押した瞬間に観測したもの）。
     context: Option<ForegroundApp>,
@@ -108,8 +114,9 @@ impl CaptureView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if context.is_some() {
-            self.context = context;
+        if let Some(app) = context {
+            self.context = Some(app);
+            self.refresh_auto_tags();
         }
         self.input.update(cx, |input, cx| input.focus(window, cx));
         cx.notify();
@@ -117,6 +124,38 @@ impl CaptureView {
         if let Some(selection) = selection {
             self.pull_selection(Pull::Awaiting(selection), window, cx);
         }
+    }
+
+    /// 直前のアプリから作った自動メタ情報を、入力欄のバッジの先頭に並べ直す。
+    ///
+    /// 前回の呼び出しぶんは入れ替える。同じラベルをユーザが自分で書いていたら、そちらを残す。
+    fn refresh_auto_tags(&mut self) {
+        self.tags.retain(|tag| tag.source != MetaSource::Auto);
+
+        let Some(context) = self.capture_context() else {
+            return;
+        };
+        let mut auto: Vec<MetaAssignment> = context
+            .auto_metas()
+            .into_iter()
+            .filter(|meta| !self.tags.iter().any(|tag| tag.label == meta.label))
+            .collect();
+
+        auto.append(&mut self.tags);
+        self.tags = auto;
+    }
+
+    /// 文脈を手放す。バッジも一緒に消して、記録の内容と表示がずれないようにする。
+    fn clear_context(&mut self) {
+        self.context = None;
+        self.refresh_auto_tags();
+    }
+
+    fn capture_context(&self) -> Option<CaptureContext> {
+        self.context.as_ref().map(|app| CaptureContext {
+            process_name: app.process_name.clone(),
+            window_title: app.window_title.clone(),
+        })
     }
 
     /// 検証結果を画面に出す（トレイメニューから呼ばれる）。
@@ -144,10 +183,13 @@ impl CaptureView {
             return;
         }
 
-        let capture_context = self.context.as_ref().map(|app| CaptureContext {
-            process_name: app.process_name.clone(),
-            window_title: app.window_title.clone(),
-        });
+        // `#app` バッジを外したなら、その文脈は lineage の source にもしない。
+        let capture_context = self
+            .tags
+            .iter()
+            .any(|tag| tag.source == MetaSource::Auto && tag.label == auto_label::APP)
+            .then(|| self.capture_context())
+            .flatten();
 
         match self
             .services
@@ -175,36 +217,49 @@ impl CaptureView {
     fn promote_completed_tags(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let value = self.input.read(cx).value().to_string();
         let mut body = value.clone();
-        let mut promoted = Vec::new();
+        let mut promoted = false;
 
         for token in value.split_inclusive(char::is_whitespace) {
             let trimmed = token.trim_end_matches(char::is_whitespace);
             let whitespace = &token[trimmed.len()..];
             let parsed = parse_meta_tags(trimmed);
-            if trimmed.starts_with('#') && parsed.len() == 1 {
-                let meta = parsed.into_iter().next().unwrap();
-                if !self.tags.iter().any(|tag| tag.label == meta.label) {
-                    promoted.push(meta);
-                }
-                body = body.replacen(token, whitespace, 1);
+            if !trimmed.starts_with('#') || parsed.len() != 1 {
+                continue;
             }
+
+            let meta = parsed.into_iter().next().unwrap();
+            match self.tags.iter().position(|tag| tag.label == meta.label) {
+                // 同じラベルの自動メタ情報は、利用者が書いた値で置き換える。
+                Some(index) if self.tags[index].source == MetaSource::Auto => {
+                    self.tags[index] = meta
+                }
+                Some(_) => {}
+                None => self.tags.push(meta),
+            }
+            body = body.replacen(token, whitespace, 1);
+            promoted = true;
         }
 
-        if promoted.is_empty() {
+        if !promoted {
             return;
         }
-        self.tags.extend(promoted);
         self.input
             .update(cx, |input, cx| input.set_value(body, window, cx));
         cx.notify();
     }
 
-    fn on_key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
-        if event.keystroke.key == "backspace"
-            && self.input.read(cx).value().is_empty()
-            && self.tags.pop().is_some()
+    /// 本文が空のときの Backspace で、バッジを末尾から1つ外す。
+    ///
+    /// Backspace は入力欄が action として受け取り、そこで伝播が止まる。
+    /// バッジまで届かせるには、入力欄より先に走る capture フェーズで受ける必要がある。
+    fn on_backspace(&mut self, _: &Backspace, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.input.read(cx).value().is_empty()
+            || !self.input.focus_handle(cx).is_focused(window)
         {
-            window.prevent_default();
+            return;
+        }
+
+        if self.tags.pop().is_some() {
             cx.stop_propagation();
             cx.notify();
         }
@@ -222,8 +277,42 @@ impl CaptureView {
                 .rounded_md()
                 .text_xs()
                 .bg(cx.theme().secondary)
+                // 自動付与は利用者が書いたものではないので、色を落として区別する。
+                .when(tag.source == MetaSource::Auto, |this| {
+                    this.text_color(cx.theme().muted_foreground)
+                })
+                .max_w(px(320.))
+                .truncate()
                 .child(text)
         }))
+    }
+
+    /// 入力欄。確定済みのメタ情報は、本文と左端を揃えて同じ枠の中に並べる。
+    fn render_input_box(&self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let focused = self.input.focus_handle(cx).is_focused(window);
+
+        v_flex()
+            .gap_1()
+            // Input が既定（Size::Medium）で使う内側余白と同じにして、バッジと本文の左端を揃える。
+            .px(px(12.))
+            .py(px(8.))
+            .rounded(cx.theme().radius)
+            .border_1()
+            .border_color(cx.theme().input)
+            .bg(cx.theme().input_background())
+            .when(focused, |this| this.focused_border(cx))
+            // 枠の余白やバッジを押しても、1つの入力欄として本文に入れるようにする。
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, window, cx| {
+                    this.input.update(cx, |input, cx| input.focus(window, cx));
+                }),
+            )
+            .when(!self.tags.is_empty(), |this| {
+                this.child(self.render_tags(cx))
+            })
+            // 枠は上の v_flex が描くので、入力欄そのものは枠も余白も持たない。
+            .child(Input::new(&self.input).appearance(false).px_0().py_0())
     }
 
     /// 保存の表示を残してからタスクトレイに戻す。
@@ -233,7 +322,7 @@ impl CaptureView {
             cx.background_executor().timer(HIDE_AFTER_SAVE).await;
             app_window.hide();
             _ = view.update(cx, |this, cx| {
-                this.context = None;
+                this.clear_context();
                 this.status = None;
                 cx.notify();
             });
@@ -318,46 +407,9 @@ impl CaptureView {
     /// Esc・閉じるボタンでは終了せず、タスクトレイに残る。
     fn dismiss(&mut self, cx: &mut Context<Self>) {
         self.status = None;
-        self.context = None;
+        self.clear_context();
         self.app_window.hide();
         cx.notify();
-    }
-
-    fn render_context_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let context = self.context.clone();
-
-        h_flex()
-            .gap_2()
-            .items_center()
-            .text_xs()
-            .text_color(cx.theme().muted_foreground)
-            .when_some(context, |this, context| {
-                let label = if context.window_title.trim().is_empty() {
-                    format!("#app={}", context.process_name)
-                } else {
-                    format!("#app={} · {}", context.process_name, context.window_title)
-                };
-
-                this.child(
-                    div()
-                        .px_2()
-                        .py_0p5()
-                        .rounded_md()
-                        .bg(cx.theme().secondary)
-                        .max_w(px(360.))
-                        .truncate()
-                        .child(label),
-                )
-                .child(
-                    Button::new("pull-foreground-text")
-                        .ghost()
-                        .xsmall()
-                        .label("テキストを取り込む")
-                        .on_click(cx.listener(|this, _, window, cx| {
-                            this.pull_foreground_text(window, cx)
-                        })),
-                )
-            })
     }
 
     fn render_status(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -381,28 +433,41 @@ impl CaptureView {
 }
 
 impl Render for CaptureView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         v_flex()
             .key_context("Minos")
             // 入力欄が処理しなかった Esc だけがここに届く（補完中は補完が閉じるだけ）。
             .on_action(cx.listener(|this, _: &Escape, _window, cx| this.dismiss(cx)))
-            .on_key_down(cx.listener(Self::on_key_down))
+            .capture_action(cx.listener(Self::on_backspace))
             .size_full()
             .p_4()
             .gap_3()
             .bg(cx.theme().background)
-            .child(self.render_context_bar(cx))
-            .child(Input::new(&self.input).prefix(self.render_tags(cx)))
+            .child(self.render_input_box(window, cx))
             .child(
                 h_flex()
                     .justify_between()
                     .items_center()
+                    .gap_2()
                     .child(self.render_status(cx))
                     .child(
-                        Button::new("submit")
-                            .primary()
-                            .label("送信")
-                            .on_click(cx.listener(|this, _, window, cx| this.submit(window, cx))),
+                        h_flex()
+                            .gap_2()
+                            .items_center()
+                            .when(self.context.is_some(), |this| {
+                                this.child(
+                                    Button::new("pull-foreground-text")
+                                        .ghost()
+                                        .xsmall()
+                                        .label("直前のアプリからテキストを取り込む")
+                                        .on_click(cx.listener(|this, _, window, cx| {
+                                            this.pull_foreground_text(window, cx)
+                                        })),
+                                )
+                            })
+                            .child(Button::new("submit").primary().label("送信").on_click(
+                                cx.listener(|this, _, window, cx| this.submit(window, cx)),
+                            )),
                     ),
             )
     }

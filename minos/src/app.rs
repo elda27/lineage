@@ -48,7 +48,7 @@ impl Services {
     pub fn capture(
         &self,
         body: String,
-        user_metas: Vec<MetaAssignment>,
+        metas: Vec<MetaAssignment>,
         context: Option<CaptureContext>,
     ) -> Result<CaptureMemoOutput> {
         CaptureMemo::new(&self.database, &self.clock, &self.ids, &self.hasher).execute(
@@ -56,7 +56,7 @@ impl Services {
                 workspace_id: self.workspace_id.clone(),
                 workspace_name: DEFAULT_WORKSPACE_NAME.to_string(),
                 body,
-                user_metas,
+                metas,
                 context,
             },
         )

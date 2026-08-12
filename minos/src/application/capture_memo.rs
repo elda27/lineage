@@ -7,7 +7,7 @@ use anyhow::{Result, bail};
 
 use crate::domain::capture::{CaptureContext, DocumentAsset};
 use crate::domain::lineage::{LineageInput, LineageLedger, relation};
-use crate::domain::meta::{MetaAssignment, parse_meta_tags};
+use crate::domain::meta::{MetaAssignment, MetaSource, parse_meta_tags};
 use crate::domain::ports::{CaptureStore, CaptureTx};
 use crate::domain::shared::{Clock, Hasher, IdGenerator};
 
@@ -24,9 +24,12 @@ pub struct CaptureMemoInput {
     pub workspace_id: String,
     pub workspace_name: String,
     pub body: String,
-    /// 入力欄で確定済みのユーザタグ。
-    pub user_metas: Vec<MetaAssignment>,
-    /// 直前に開いていたアプリケーションの情報（取得できた場合）。
+    /// 入力欄のバッジとして確定済みのメタ情報（自動付与ぶんも含む）。
+    ///
+    /// 自動付与を並べるのは入力欄の役目なので、ここに載っていない自動メタ情報は
+    /// 利用者が外したものとして扱い、記録には残さない。
+    pub metas: Vec<MetaAssignment>,
+    /// 直前に開いていたアプリケーションの情報（取得できた場合）。lineage の source になる。
     pub context: Option<CaptureContext>,
 }
 
@@ -71,11 +74,7 @@ impl<'a> CaptureMemo<'a> {
 
         let now = self.clock.now_rfc3339();
         let document = DocumentAsset::memo(self.ids.new_id(), &input.workspace_id, body, &now);
-        let metas = collect_metas(
-            &document.body_text,
-            &input.user_metas,
-            input.context.as_ref(),
-        );
+        let metas = collect_metas(&document.body_text, &input.metas);
 
         // 自動付与の app が取れていれば、その文脈を lineage の source にする。
         let (source_kind, source_id) = match input.context.as_ref() {
@@ -132,25 +131,16 @@ impl<'a> CaptureMemo<'a> {
     }
 }
 
-/// 自動付与のメタ情報と、本文中の `#タグ` をまとめる。
+/// 確定済みのバッジと、本文中に残った `#タグ` をまとめる。
 ///
 /// 同じラベルが両方に現れた場合はユーザ入力を優先する（自動値で上書きしない）。
-fn collect_metas(
-    body: &str,
-    user_metas: &[MetaAssignment],
-    context: Option<&CaptureContext>,
-) -> Vec<MetaAssignment> {
-    let mut metas = user_metas.to_vec();
+fn collect_metas(body: &str, confirmed: &[MetaAssignment]) -> Vec<MetaAssignment> {
+    let mut metas = confirmed.to_vec();
     for meta in parse_meta_tags(body) {
-        if !metas.iter().any(|existing| existing.label == meta.label) {
-            metas.push(meta);
-        }
-    }
-    if let Some(context) = context {
-        for auto in context.auto_metas() {
-            if !metas.iter().any(|m| m.label == auto.label) {
-                metas.push(auto);
-            }
+        match metas.iter_mut().find(|existing| existing.label == meta.label) {
+            Some(existing) if existing.source == MetaSource::Auto => *existing = meta,
+            Some(_) => {}
+            None => metas.push(meta),
         }
     }
     metas
@@ -181,13 +171,18 @@ mod tests {
             }
         }
 
+        /// 入力欄と同じように、文脈から作った自動メタ情報をバッジとして渡す。
         fn capture(&self, body: &str, context: Option<CaptureContext>) -> CaptureMemoOutput {
+            let metas = context
+                .as_ref()
+                .map(CaptureContext::auto_metas)
+                .unwrap_or_default();
             CaptureMemo::new(&self.db, &self.clock, &self.ids, &self.hasher)
                 .execute(CaptureMemoInput {
                     workspace_id: "ws".into(),
                     workspace_name: "minos".into(),
                     body: body.into(),
-                    user_metas: Vec::new(),
+                    metas,
                     context,
                 })
                 .unwrap()
@@ -205,8 +200,27 @@ mod tests {
         let out = f.capture("SOXL 損切り #投資", Some(context));
 
         assert_eq!(out.title, "SOXL 損切り #投資");
-        assert_eq!(out.meta_labels, vec!["投資", "app", "window"]);
+        assert_eq!(out.meta_labels, vec!["app", "window", "投資"]);
         assert_eq!(out.seq, 1);
+    }
+
+    #[test]
+    fn auto_metadata_removed_from_the_input_stays_out_of_the_record() {
+        let f = Fixture::new();
+        let out = CaptureMemo::new(&f.db, &f.clock, &f.ids, &f.hasher)
+            .execute(CaptureMemoInput {
+                workspace_id: "ws".into(),
+                workspace_name: "minos".into(),
+                body: "アプリ情報を外したメモ".into(),
+                metas: Vec::new(),
+                context: Some(CaptureContext {
+                    process_name: "chrome.exe".into(),
+                    window_title: "SOXL".into(),
+                }),
+            })
+            .unwrap();
+
+        assert!(out.meta_labels.is_empty());
     }
 
     #[test]
@@ -217,7 +231,7 @@ mod tests {
                 workspace_id: "ws".into(),
                 workspace_name: "minos".into(),
                 body: "バッジ付きのメモ".into(),
-                user_metas: vec![MetaAssignment::user("タスク", None)],
+                metas: vec![MetaAssignment::user("タスク", None)],
                 context: None,
             })
             .unwrap();
@@ -251,7 +265,7 @@ mod tests {
             workspace_id: "ws".into(),
             workspace_name: "minos".into(),
             body: "   \n ".into(),
-            user_metas: Vec::new(),
+            metas: Vec::new(),
             context: None,
         });
         assert!(result.is_err());
