@@ -36,12 +36,27 @@ use crate::infrastructure::system::{
 use crate::presentation::capture_view::CaptureView;
 use crate::presentation::window_control::AppWindow;
 
+/// 自動起動（ログオン時・インストーラ直後）であることを示す引数。
+///
+/// インストーラが Run 値とインストール完了時の起動の両方に付ける
+/// （fullos/src-tauri/wix/minos.wxs）。
+const AUTO_START_FLAG: &str = "--autostart";
+
 fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+
+    // 自動起動は「利用者が呼んだ」わけではないので、画面を出さずトレイに常駐するだけにする。
+    let auto_start = std::env::args().skip(1).any(|arg| arg == AUTO_START_FLAG);
 
     // 2つ目のプロセスはトレイアイコンを増やすだけなので、既存のウィンドウを出して終わる。
     let _instance = match single_instance::acquire() {
         single_instance::Instance::First(handle) => handle,
+        single_instance::Instance::AlreadyRunning if auto_start => {
+            // 自動起動が重なっただけ（例: ログオン起動の直後に更新インストーラが起動した）。
+            // 利用者は何も要求していないので、黙って譲る。
+            log::info!("minos はすでに起動しています");
+            return;
+        }
         single_instance::Instance::AlreadyRunning => {
             log::info!("minos はすでに起動しています。既存のウィンドウを表示します");
             system_window::activate_other_instance();
@@ -118,7 +133,17 @@ fn main() {
                 .expect("入力画面が作成されていません");
 
             // 最初の表示位置だけは gpui のウィンドウ生成後に整える。
-            app_window.show();
+            //
+            // 自動起動のときは出さずに畳む。WindowOptions の show=false を使わないのは、
+            // gpui がそのとき初回の activate までウィンドウ配置を保留するため。
+            // 保留が残ったままだと、最初の Alt+Space で中央に出した直後に
+            // 保留分の SetWindowPlacement が走ってウィンドウが左上へ飛ぶ。
+            // 生成直後（＝まだ描画していないうち）に隠せば保留は残らない。
+            if auto_start {
+                app_window.hide();
+            } else {
+                app_window.show();
+            }
 
             while let Ok(event) = events.recv().await {
                 log::debug!("system event: {event:?}");

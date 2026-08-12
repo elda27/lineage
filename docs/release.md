@@ -45,10 +45,36 @@ Tauri v2 の MSI は WiX v3 なので、フラグメントのスキーマは `wi
 ## minos の自動起動
 
 minos はトレイ常駐 + Alt+Space のアプリなので、起動していないと呼び出せない。
-インストーラが `HKLM\Software\Microsoft\Windows\CurrentVersion\Run` に
-`lineage Minos` = `"%ProgramFiles%\lineage\minos.exe"` を書き、次回以降の
-Windows ログオンで自動的に常駐する（`MinosAutoStart` コンポーネントグループ）。
-アンインストールするとこの値も消える。
+そのためインストーラは2か所で minos を起動する（どちらも `MinosAutoStart`
+コンポーネントグループ、[fullos/src-tauri/wix/minos.wxs](../fullos/src-tauri/wix/minos.wxs)）。
+
+| いつ                 | 仕掛け                                                                                  |
+| -------------------- | --------------------------------------------------------------------------------------- |
+| 次回以降のログオン   | `HKLM\Software\Microsoft\Windows\CurrentVersion\Run` の `lineage Minos`（`MinosRunAtLogon`） |
+| インストールした直後 | `InstallFinalize` の後に走るカスタムアクション `LaunchMinos`                             |
+
+どちらも `"%ProgramFiles%\lineage\minos.exe" --autostart` を起動する。
+アンインストールすると Run 値はコンポーネントごと消える。
+
+`LaunchMinos` は `InstallExecuteSequence` に置いてあるので、UI 付きのインストールでも
+更新時のサイレント実行でも走る（Tauri が fullos 用に持っている `LaunchApplication` は
+ExitDialog のチェックボックス経由なので UI 付きのときしか走らない）。即時実行 +
+`Impersonate="yes"` なので、昇格した SYSTEM ではなくインストールを始めた利用者の
+セッションで起動する。条件の `NOT Installed` は新規インストールと更新（メジャー
+アップグレードの新パッケージ側）で真、アンインストールと修復では偽になる。
+
+### `--autostart`
+
+自動起動は利用者が呼んだわけではないので、`--autostart` 付きで起動した minos は
+入力画面を出さずトレイに入るだけになる（[minos/src/main.rs](../minos/src/main.rs)）。
+付け忘れると、ログオンのたびに、またインストーラの最終画面の上に入力画面が現れる。
+すでに常駐しているところへ `--autostart` 付きの起動が重なった場合は、既存のウィンドウを
+出さずに黙って終了する（引数なしの起動、つまりショートカットからの起動では既存の
+ウィンドウを前に出す）。
+
+多重起動そのものは minos 側の名前付き Mutex で抑止されるので、ログオン起動と
+ショートカットを併用してもプロセスは増えない
+（[minos/src/infrastructure/system/single_instance.rs](../minos/src/infrastructure/system/single_instance.rs)）。
 
 ### フラグメントでは handlebars の変数が使えない
 
@@ -71,10 +97,8 @@ Run 値を HKCU ではなく HKLM に置いているのは、この MSI が `Ins
 インストールしたユーザのハイブに落ちる保証がない。代わりにこのマシンへログオンする
 全ユーザで minos が起動する。perUser インストールに変えるなら HKCU へ移すこと。
 
-インストール直後には起動しない（自動起動は次のログオンから）。すぐ使いたい場合は
-スタートメニューの `lineage\Minos` から起動する。多重起動は minos 側の名前付き Mutex で
-抑止されるので、ログオン起動と併用しても増えない
-（[minos/src/infrastructure/system/single_instance.rs](../minos/src/infrastructure/system/single_instance.rs)）。
+なお XML のコメント内にはハイフン 2 個を書けないため、`minos.wxs` のコメントでは
+引数名を裸で書いてある（属性値の側は普通に書ける）。
 
 ## 自動更新と minos
 
@@ -82,6 +106,10 @@ Run 値を HKCU ではなく HKLM に置いているのは、この MSI が `Ins
 更新時に minos が起動したままだと MSI が使用中ファイルを差し替えられず、
 サイレント適用では再起動待ちになる。自動起動で常駐しているぶん残りやすいので、
 更新前に minos を終了させておくのが確実。
+
+終了した minos は更新の最後に `LaunchMinos` が入れ直す（メジャーアップグレードの
+新パッケージ側では `NOT Installed` が真になる）。fullos が `relaunch()` で戻るのと同じく、
+更新のたびに常駐が途切れたままにはならない。
 
 ## リリース手順
 

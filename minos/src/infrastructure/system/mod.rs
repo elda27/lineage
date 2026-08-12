@@ -8,6 +8,7 @@ pub mod foreground;
 pub mod launcher;
 pub mod single_instance;
 pub mod tray;
+pub mod tray_promotion;
 pub mod window;
 
 pub use foreground::ForegroundApp;

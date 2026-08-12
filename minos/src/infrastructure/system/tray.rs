@@ -24,7 +24,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows::core::{PCWSTR, w};
 
-use crate::infrastructure::system::{SelectionCapture, SystemEvent, foreground};
+use crate::infrastructure::system::{SelectionCapture, SystemEvent, foreground, tray_promotion};
 
 /// `RegisterHotKey` の識別子。プロセス内で一意ならよい。
 const HOTKEY_ID: i32 = 1;
@@ -137,6 +137,8 @@ impl SystemThread {
             None,
         );
         let tray = build_tray(&auto_pull).context("タスクトレイのアイコンを作成できません")?;
+        // Windows 11 は初めて見るアイコンをオーバーフローに隠すので、初回だけ表に出す。
+        tray_promotion::promote_in_background();
         let session =
             SessionListener::new(sender.clone()).context("セッション終了の監視を開始できません")?;
 

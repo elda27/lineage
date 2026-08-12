@@ -62,8 +62,8 @@
     </Fragment>
 
     <!--
-      ログオン時に minos.exe を常駐させる。minos はトレイ常駐 + Alt+Space の
-      アプリなので、起動していないと呼び出せない。
+      ログオン時、およびインストール直後に minos.exe を常駐させる。minos はトレイ常駐 +
+      Alt+Space のアプリなので、起動していないと呼び出せない。
 
       Run 値は HKLM に置く。この MSI は main.wxs で InstallScope="perMachine" なので
       レジストリの書き込みは昇格した deferred アクション（= SYSTEM）が行い、HKCU は
@@ -73,6 +73,12 @@
       多重起動は minos 側の名前付き Mutex で抑止されるので、ショートカットから
       追加で起動されても増殖しない（minos/src/infrastructure/system/single_instance.rs）。
       値はアンインストール時にコンポーネントごと消える。
+
+      autostart 引数（ExeCommand と Run 値に付けているもの）は「利用者が呼んだのではない」
+      という印で、minos はこのとき入力画面を出さずトレイに入るだけになる
+      （minos/src/main.rs）。付けないと、ログオンのたびに、また
+      インストーラの最終画面の上に入力画面が現れる。
+      なお XML のコメント内にはハイフン 2 個を書けないので、ここでは引数名を裸で書いている。
     -->
     <Fragment>
         <ComponentGroup Id="MinosAutoStart" Directory="INSTALLDIR">
@@ -84,9 +90,31 @@
                                Key="Software\Microsoft\Windows\CurrentVersion\Run"
                                Name="lineage Minos"
                                Type="string"
-                               Value="&quot;[INSTALLDIR]minos.exe&quot;"
+                               Value="&quot;[INSTALLDIR]minos.exe&quot; --autostart"
                                KeyPath="yes" />
             </Component>
         </ComponentGroup>
+
+        <!--
+          インストールが終わった時点で minos を起動する。Run 値だけだと次のログオンまで
+          常駐せず、入れた直後に Alt+Space を押しても何も起きない。
+
+          InstallExecuteSequence に置くので、UI 付きでも更新時のサイレント実行でも走る
+          （Tauri の LaunchApplication は ExitDialog のチェックボックス経由なので UI 限定）。
+          即時実行 + Impersonate なので、昇格した SYSTEM ではなくインストールを始めた
+          利用者のセッションで起動する。asyncNoWait なのでインストーラは終了を待たない。
+
+          条件の NOT Installed は「新規インストール」と「更新（メジャーアップグレードの
+          新パッケージ側）」で真、アンインストールと修復では偽になる。更新のときは
+          RemoveExistingProducts が古い minos を落としているので、ここで入れ直す形になる。
+        -->
+        <CustomAction Id="LaunchMinos"
+                      Directory="INSTALLDIR"
+                      ExeCommand="&quot;[INSTALLDIR]minos.exe&quot; --autostart"
+                      Impersonate="yes"
+                      Return="asyncNoWait" />
+        <InstallExecuteSequence>
+            <Custom Action="LaunchMinos" After="InstallFinalize">NOT Installed</Custom>
+        </InstallExecuteSequence>
     </Fragment>
 </Wix>
