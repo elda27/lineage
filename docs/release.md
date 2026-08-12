@@ -4,12 +4,12 @@ Windows 向け配布は GitHub Release を単一の配布元とする。
 リリースを publish すると `.github/workflows/release.yml` が走り、インストーラを
 そのリリースに添付する。fullos はそのリリースの `latest.json` を見て自己更新する。
 
-| 成果物 | 中身 | 生成元 |
-| --- | --- | --- |
-| `minos_<version>_x64_en-US.msi` | minos のインストーラ | `wix build minos/wix/minos.wxs` |
-| `fullos_<version>_x64_en-US.msi` | fullos のインストーラ | `tauri build --bundles msi`（Tauri も WiX 経由） |
-| `fullos_<version>_x64_en-US.msi.sig` | 上記の minisign 署名 | Tauri updater |
-| `latest.json` | 更新マニフェスト | Tauri updater |
+| 成果物                               | 中身                  | 生成元                                           |
+| ------------------------------------ | --------------------- | ------------------------------------------------ |
+| `minos_<version>_x64_en-US.msi`      | minos のインストーラ  | `wix build minos/wix/minos.wxs`                  |
+| `fullos_<version>_x64_en-US.msi`     | fullos のインストーラ | `tauri build --bundles msi`（Tauri も WiX 経由） |
+| `fullos_<version>_x64_en-US.msi.sig` | 上記の minisign 署名  | Tauri updater                                    |
+| `latest.json`                        | 更新マニフェスト      | Tauri updater                                    |
 
 ## リリース手順
 
@@ -36,11 +36,11 @@ pnpm tauri signer generate -w ~/.tauri/lineage-updater.key
 
 生成された内容を次の 3 か所に配る。
 
-| 出力 | 置き場所 |
-| --- | --- |
-| 公開鍵（`.key.pub` の中身） | `fullos/src-tauri/tauri.conf.json` の `plugins.updater.pubkey` |
-| 秘密鍵（`.key` の中身） | リポジトリ Secret `TAURI_SIGNING_PRIVATE_KEY` |
-| 生成時に入力したパスワード | リポジトリ Secret `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`（未設定なら空文字列で登録） |
+| 出力                        | 置き場所                                                                           |
+| --------------------------- | ---------------------------------------------------------------------------------- |
+| 公開鍵（`.key.pub` の中身） | `fullos/src-tauri/tauri.conf.json` の `plugins.updater.pubkey`                     |
+| 秘密鍵（`.key` の中身）     | リポジトリ Secret `TAURI_SIGNING_PRIVATE_KEY`                                      |
+| 生成時に入力したパスワード  | リポジトリ Secret `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`（未設定なら空文字列で登録） |
 
 `tauri.conf.json` の `pubkey` は現在 `REPLACE_WITH_TAURI_UPDATER_PUBLIC_KEY` の
 プレースホルダになっている。**ここを実際の公開鍵に置き換えるまで fullos のビルドは
