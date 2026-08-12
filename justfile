@@ -42,7 +42,7 @@ bundle: (bundle-with bundles)
 # bundle.resources 経由で同じ MSI に入る。WiX は Tauri のバンドラが
 # %LOCALAPPDATA%\tauri へ自動で用意するので手動インストールは不要。
 #
-# 出力: fullos/src-tauri/target/release/bundle/msi/fullos_<version>_x64_en-US.msi
+# 出力: fullos/src-tauri/target/release/bundle/msi/lineage_<version>_x64_en-US.msi
 # 署名鍵 TAURI_SIGNING_PRIVATE_KEY が無いと createUpdaterArtifacts の署名で失敗する。
 [doc("fullos + minos を 1 本の Windows MSI にまとめる")]
 [windows]

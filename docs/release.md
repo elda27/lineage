@@ -8,18 +8,30 @@ Windows 向け配布は GitHub Release を単一の配布元とする。
 
 | 成果物                               | 中身                          | 生成元                                           |
 | ------------------------------------ | ----------------------------- | ------------------------------------------------ |
-| `fullos_<version>_x64_en-US.msi`     | fullos + minos のインストーラ | `tauri build --bundles msi`（Tauri も WiX 経由） |
-| `fullos_<version>_x64_en-US.msi.sig` | 上記の minisign 署名          | Tauri updater                                    |
+| `lineage_<version>_x64_en-US.msi`     | fullos + minos のインストーラ | `tauri build --bundles msi`（Tauri も WiX 経由） |
+| `lineage_<version>_x64_en-US.msi.sig` | 上記の minisign 署名          | Tauri updater                                    |
 | `latest.json`                        | 更新マニフェスト              | Tauri updater                                    |
 
 ## MSI の中身
 
 | 配置                                             | 生成元                                                    |
 | ------------------------------------------------ | --------------------------------------------------------- |
-| `%ProgramFiles%\fullos\fullos.exe`               | Tauri の主バイナリ                                        |
-| `%ProgramFiles%\fullos\minos.exe`                | `cargo build --release`（`bundle.resources` で同梱）      |
-| スタートメニュー `fullos\fullos`                 | Tauri のテンプレート                                      |
-| スタートメニュー `fullos\Minos`                  | [fullos/src-tauri/wix/minos.wxs](../fullos/src-tauri/wix/minos.wxs) |
+| `%ProgramFiles%\lineage\fullos.exe`              | Tauri の主バイナリ                                        |
+| `%ProgramFiles%\lineage\minos.exe`               | `cargo build --release`（`bundle.resources` で同梱）      |
+| スタートメニュー `lineage\fullos`                | [fullos/src-tauri/wix/main.wxs](../fullos/src-tauri/wix/main.wxs)   |
+| スタートメニュー `lineage\Minos`                 | [fullos/src-tauri/wix/minos.wxs](../fullos/src-tauri/wix/minos.wxs) |
+
+スタートメニューのショートカット名を `lineage` ではなく `fullos` にするため、Tauri の
+WiX テンプレートを [fullos/src-tauri/wix/main.wxs](../fullos/src-tauri/wix/main.wxs) に
+vendoring して `bundle.windows.wix.template` から読ませている。原本は
+tauri-cli v2.11.4 の `crates/tauri-bundler/src/bundle/windows/msi/main.wxs` で、
+変更点はショートカット名の 1 行だけ。**Tauri を上げたときはこのファイルも取り直すこと。**
+
+インストーラ名とインストール先は `tauri.conf.json` の `productName`（= `lineage`）で決まる。
+実行ファイル名だけは `mainBinaryName` で `fullos.exe` に固定してある。minos が同じ
+ディレクトリの `fullos.exe` を名前決め打ちで起動するため
+（[minos/src/infrastructure/system/launcher.rs](../minos/src/infrastructure/system/launcher.rs)）、
+ここを変えると起動導線が壊れる。
 
 minos.exe は
 [fullos/src-tauri/tauri.conf.json](../fullos/src-tauri/tauri.conf.json) の
@@ -64,9 +76,18 @@ pnpm tauri signer generate -w ~/.tauri/lineage-updater.key
 | 秘密鍵（`.key` の中身）     | リポジトリ Secret `TAURI_SIGNING_PRIVATE_KEY`                                      |
 | 生成時に入力したパスワード  | リポジトリ Secret `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`（未設定なら空文字列で登録） |
 
-`tauri.conf.json` の `pubkey` は現在 `REPLACE_WITH_TAURI_UPDATER_PUBLIC_KEY` の
-プレースホルダになっている。**ここを実際の公開鍵に置き換えるまで fullos のビルドは
-失敗する**（`createUpdaterArtifacts` が有効なため署名鍵を要求する）。
+`tauri.conf.json` の `pubkey` は設定済み。公開鍵なのでリポジトリに入れて構わない
+（`.key.pub` の中身をそのまま貼る）。ここが未設定だと
+`failed to decode base64 pubkey` でビルドが落ちる。
+
+秘密鍵の方は環境変数 `TAURI_SIGNING_PRIVATE_KEY` で渡す。`tauri.conf.json` や
+`.env` からは読まれないので、`tauri build` を実行するシェル自身に設定すること。
+
+```powershell
+$env:TAURI_SIGNING_PRIVATE_KEY = (Get-Content "$env:USERPROFILE\.tauri\lineage-updater.key" -Raw)
+$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = ""   # 鍵生成時にパスワードを付けたならその値
+just msi
+```
 
 秘密鍵を失うと、既に配布済みのアプリは以後の更新を検証できなくなる。鍵は必ず保管すること。
 
@@ -92,7 +113,7 @@ cd fullos && pnpm tauri build --bundles msi   # minos も一緒にビルドさ�
 `just bundle` はホスト OS の既定形式（Windows: `msi` / macOS: `dmg` / Linux: `deb,appimage`）で
 バンドルする。`just msi` は Windows でのみ実行できる。
 
-出力は `fullos/src-tauri/target/release/bundle/msi/fullos_<version>_x64_en-US.msi`。
+出力は `fullos/src-tauri/target/release/bundle/msi/lineage_<version>_x64_en-US.msi`。
 バージョンは `tauri.conf.json` の `version` がそのまま入る（CI ではタグから上書きされる）。
 
 ローカルで bundle する場合も `TAURI_SIGNING_PRIVATE_KEY` が必要。
