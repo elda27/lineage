@@ -23,9 +23,7 @@ use gpui_component::{ActiveTheme, Sizable, StyledExt, h_flex, v_flex};
 
 use crate::app::Services;
 use crate::domain::capture::CaptureContext;
-use crate::domain::meta::{
-    MetaAssignment, MetaSource, auto_label, split_completed_tags,
-};
+use crate::domain::meta::{MetaAssignment, MetaSource, auto_label, split_completed_tags};
 use crate::infrastructure::system::foreground;
 use crate::infrastructure::system::{ForegroundApp, SelectionCapture};
 use crate::presentation::meta_completion::MetaCompletionProvider;

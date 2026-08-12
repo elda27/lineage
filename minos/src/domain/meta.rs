@@ -302,10 +302,7 @@ mod tests {
 
         let (rest, tags) = split_completed_tags("SOXL #銘柄=SOXL 損切り");
         assert_eq!(rest, "SOXL 損切り");
-        assert_eq!(
-            tags,
-            vec![MetaAssignment::user("銘柄", Some("SOXL".into()))]
-        );
+        assert_eq!(tags, vec![MetaAssignment::user("銘柄", Some("SOXL".into()))]);
 
         // 改行も終端になる。
         let (rest, tags) = split_completed_tags("#タスク\n");
