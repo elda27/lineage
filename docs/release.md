@@ -4,19 +4,41 @@ Windows 向け配布は GitHub Release を単一の配布元とする。
 リリースを publish すると `.github/workflows/release.yml` が走り、インストーラを
 そのリリースに添付する。fullos はそのリリースの `latest.json` を見て自己更新する。
 
-| 成果物                               | 中身                  | 生成元                                           |
-| ------------------------------------ | --------------------- | ------------------------------------------------ |
-| `minos_<version>_x64_en-US.msi`      | minos のインストーラ  | `wix build minos/wix/minos.wxs`                  |
-| `fullos_<version>_x64_en-US.msi`     | fullos のインストーラ | `tauri build --bundles msi`（Tauri も WiX 経由） |
-| `fullos_<version>_x64_en-US.msi.sig` | 上記の minisign 署名  | Tauri updater                                    |
-| `latest.json`                        | 更新マニフェスト      | Tauri updater                                    |
+インストーラは **fullos と minos をまとめた 1 本の MSI**。
+
+| 成果物                               | 中身                          | 生成元                                           |
+| ------------------------------------ | ----------------------------- | ------------------------------------------------ |
+| `fullos_<version>_x64_en-US.msi`     | fullos + minos のインストーラ | `tauri build --bundles msi`（Tauri も WiX 経由） |
+| `fullos_<version>_x64_en-US.msi.sig` | 上記の minisign 署名          | Tauri updater                                    |
+| `latest.json`                        | 更新マニフェスト              | Tauri updater                                    |
+
+## MSI の中身
+
+| 配置                                             | 生成元                                                    |
+| ------------------------------------------------ | --------------------------------------------------------- |
+| `%ProgramFiles%\fullos\fullos.exe`               | Tauri の主バイナリ                                        |
+| `%ProgramFiles%\fullos\minos.exe`                | `cargo build --release`（`bundle.resources` で同梱）      |
+| スタートメニュー `fullos\fullos`                 | Tauri のテンプレート                                      |
+| スタートメニュー `fullos\Minos`                  | [fullos/src-tauri/wix/minos.wxs](../fullos/src-tauri/wix/minos.wxs) |
+
+minos.exe は
+[fullos/src-tauri/tauri.conf.json](../fullos/src-tauri/tauri.conf.json) の
+`build.beforeBuildCommand` でビルドされ（`cargo build --release --manifest-path ../minos/Cargo.toml`）、
+`bundle.resources` でインストール先直下に入る。ショートカットだけは Tauri が
+生成するコンポーネントから参照できないので、WiX フラグメントを 1 枚足して
+`bundle.windows.wix.fragmentPaths` / `componentGroupRefs` から読ませている。
+Tauri v2 の MSI は WiX v3 なので、フラグメントのスキーマは `wix/2006/wi`（v4/v5 ではない）。
+
+1 本になったので、fullos の自動更新は minos も一緒に置き換える。
+更新時に minos が起動したままだと MSI が使用中ファイルを差し替えられず、
+サイレント適用では再起動待ちになる。更新前に minos を終了させておくのが確実。
 
 ## リリース手順
 
 1. GitHub で `vX.Y.Z` タグのリリースを作成して publish する。
 2. workflow がタグからバージョンを決め（`.github/scripts/set-version.mjs` が
    `minos/Cargo.toml` / `fullos/package.json` / `fullos/src-tauri/tauri.conf.json` /
-   `fullos/src-tauri/Cargo.toml` を書き換える。コミットはしない）、両方をビルドして
+   `fullos/src-tauri/Cargo.toml` を書き換える。コミットはしない）、MSI をビルドして
    同じリリースへアップロードする。
 3. 失敗したジョブを直したら、`workflow_dispatch` にタグを渡して同じリリースへ再アップロードできる。
 
@@ -61,10 +83,22 @@ pnpm tauri signer generate -w ~/.tauri/lineage-updater.key
 ## ローカルでのパッケージング
 
 ```sh
-just msi 0.1.0                        # minos の MSI
-cd fullos && pnpm tauri build --bundles msi   # fullos の MSI
+just msi                                      # = 下の 2 行（Windows 専用レシピ）
+cd fullos && pnpm install
+cd fullos && pnpm tauri build --bundles msi   # minos も一緒にビルドされる
 ```
 
-fullos をローカルで bundle する場合も `TAURI_SIGNING_PRIVATE_KEY` が必要。
+`justfile` は Windows / macOS / Linux で共通に動く（Windows では PowerShell を使う）。
+`just bundle` はホスト OS の既定形式（Windows: `msi` / macOS: `dmg` / Linux: `deb,appimage`）で
+バンドルする。`just msi` は Windows でのみ実行できる。
+
+出力は `fullos/src-tauri/target/release/bundle/msi/fullos_<version>_x64_en-US.msi`。
+バージョンは `tauri.conf.json` の `version` がそのまま入る（CI ではタグから上書きされる）。
+
+ローカルで bundle する場合も `TAURI_SIGNING_PRIVATE_KEY` が必要。
 署名なしで動作確認したいだけなら `tauri.conf.json` の `createUpdaterArtifacts` を
 一時的に `false` にする。
+
+MSI 以外のターゲット（`bundle.targets: "all"`）は Windows 以外では
+`minos.exe` が無くて失敗する。Windows 以外で bundle する用事ができたら
+`bundle.resources` をプラットフォームで分ける必要がある。

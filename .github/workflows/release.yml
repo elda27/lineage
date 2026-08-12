@@ -1,13 +1,13 @@
-# Publish a GitHub Release -> build the Windows installers and attach them to it.
+# Publish a GitHub Release -> build the Windows installer and attach it to it.
 #
-# minos  : cargo build --release, then packaged into an MSI with the WiX toolset
-#          (same command as the `just msi` recipe).
-# fullos : `tauri build --bundles msi` (Tauri bundles MSI through WiX too) plus
-#          the updater artifacts (.msi.sig + latest.json) that fullos' in-app
-#          updater downloads from this release.
+# fullos と minos は 1 つの MSI にまとまっている。`tauri build --bundles msi` が
+# WiX 経由で MSI を作り、minos.exe は tauri.conf.json の beforeBuildCommand で
+# ビルドされて bundle.resources 経由で同じ MSI に入る。updater 用の成果物
+# (.msi.sig + latest.json) も同じステップで作られ、fullos のアプリ内 updater が
+# このリリースから取得する。
 #
-# Both jobs upload into the release that triggered the run, so publishing a
-# release is the only manual step.
+# ジョブはトリガーになったリリースへアップロードするので、手作業はリリースの
+# publish だけ。
 name: release
 
 on:
@@ -50,50 +50,7 @@ jobs:
             echo "release_id=$release_id"
           } >> "$GITHUB_OUTPUT"
 
-  minos:
-    needs: prepare
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.prepare.outputs.tag }}
-
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: minos
-
-      - name: Set version from tag
-        run: node .github/scripts/set-version.mjs ${{ needs.prepare.outputs.version }}
-
-      - name: Build minos
-        working-directory: minos
-        run: cargo build --release
-
-      - name: Install the WiX toolset
-        run: |
-          dotnet tool install --global wix --version 5.*
-          Add-Content -Path $env:GITHUB_PATH -Value "$env:USERPROFILE\.dotnet\tools"
-
-      - name: Package the MSI
-        env:
-          VERSION: ${{ needs.prepare.outputs.version }}
-        run: |
-          New-Item -ItemType Directory -Force ./minos/target/wix | Out-Null
-          wix build ./minos/wix/minos.wxs `
-            -b ./minos/target/release `
-            -d Version=$env:VERSION `
-            -o "./minos/target/wix/minos_${env:VERSION}_x64_en-US.msi"
-
-      - name: Attach the MSI to the release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ needs.prepare.outputs.version }}
-        run: |
-          gh release upload ${{ needs.prepare.outputs.tag }} `
-            "./minos/target/wix/minos_${env:VERSION}_x64_en-US.msi" --clobber
-
-  fullos:
+  installer:
     needs: prepare
     runs-on: windows-latest
     steps:
@@ -112,7 +69,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: fullos/src-tauri
+          workspaces: |
+            fullos/src-tauri
+            minos
 
       - name: Set version from tag
         run: node .github/scripts/set-version.mjs ${{ needs.prepare.outputs.version }}
@@ -121,8 +80,14 @@ jobs:
         working-directory: fullos
         run: pnpm install --no-frozen-lockfile
 
-      # Builds the MSI, signs it with the updater key and uploads the bundle,
-      # its .sig and latest.json to the release.
+      # minos は tauri の beforeBuildCommand でも自動ビルドされるが、キャッシュが
+      # 効いていないときに時間のかかる工程なのでログ上分けておく（2 回目は no-op）。
+      - name: Build minos
+        working-directory: minos
+        run: cargo build --release
+
+      # Builds the MSI (fullos + minos), signs it with the updater key and
+      # uploads the bundle, its .sig and latest.json to the release.
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
