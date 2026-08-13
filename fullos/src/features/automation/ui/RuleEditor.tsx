@@ -9,13 +9,13 @@ import {
   type BackendKind,
   type MetaCondition,
   type TriggerKind,
-} from "../../core/domain/automation/AutomationRule";
+} from "@core/domain/automation/AutomationRule";
 import {
   API_KEY_PROVIDERS,
   BROWSER_PROVIDERS,
   providerLabel,
-} from "../../core/domain/automation/BrowserProfile";
-import { Icon, primaryButton, secondaryButton, tagChip } from "../ui";
+} from "@core/domain/automation/BrowserProfile";
+import { Icon, primaryButton, secondaryButton, tagChip } from "@/shared/ui/kit";
 import { MetaConditionInput } from "./MetaConditionInput";
 
 const field = "flex flex-col gap-1.5";
@@ -102,8 +102,7 @@ export function RuleEditor({
     });
   };
 
-  const setConditions = (metas: MetaCondition[]) =>
-    patch({ trigger: { ...draft.trigger, metas } });
+  const setConditions = (metas: MetaCondition[]) => patch({ trigger: { ...draft.trigger, metas } });
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -311,8 +310,7 @@ export function RuleEditor({
                 placeholder="0 0 9 * * *"
               />
               <p className={hint}>
-                先頭が秒です（`0 0 9 * * *` で毎日9時）。実行には agentos
-                の定期起動が必要です。
+                先頭が秒です（`0 0 9 * * *` で毎日9時）。実行には agentos の定期起動が必要です。
               </p>
             </div>
           )}

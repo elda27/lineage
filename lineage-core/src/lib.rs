@@ -5,8 +5,9 @@
 //! 実装が3か所に散ると hash-chain の計算がアプリごとに分岐しうるため
 //! （docs/concept/MINIMAL_ARCHITECTURE.md「4. Lineage の真正性担保」）。
 //!
-//! 依存方向は infrastructure → application → domain。domain は何にも依存しない。
+//! 依存方向は infra → app → domain。domain は何にも依存しない。
+//! （それぞれ infrastructure / application 層の短縮名）
 
-pub mod application;
+pub mod app;
 pub mod domain;
-pub mod infrastructure;
+pub mod infra;

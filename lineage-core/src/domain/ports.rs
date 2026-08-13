@@ -1,6 +1,6 @@
 //! Repository インターフェース。実装は infrastructure 側に置く。
 //!
-//! 依存方向は presentation/infrastructure → application → domain。
+//! 依存方向は features(presentation)/infra → app → domain。
 //! ここには SQL も Win32 も現れない。
 
 use anyhow::Result;

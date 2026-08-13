@@ -17,14 +17,14 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use clap::{Args, Parser, Subcommand};
-use lineage_core::application::automation::{Automation, reject_browser_backend};
+use lineage_core::app::automation::{Automation, reject_browser_backend};
 use lineage_core::domain::automation::{AutomationRule, AutomationRun, RunStatus};
 use lineage_core::domain::ports::{AutomationRuleQuery, LineageQuery};
-use lineage_core::infrastructure::anthropic::AnthropicBackend;
-use lineage_core::infrastructure::clock::{SystemClock, UuidGenerator};
-use lineage_core::infrastructure::credentials::OsCredentialStore;
-use lineage_core::infrastructure::crypto::Sha256Hasher;
-use lineage_core::infrastructure::sqlite::Database;
+use lineage_core::infra::anthropic::AnthropicBackend;
+use lineage_core::infra::clock::{SystemClock, UuidGenerator};
+use lineage_core::infra::credentials::OsCredentialStore;
+use lineage_core::infra::crypto::Sha256Hasher;
+use lineage_core::infra::sqlite::Database;
 
 /// minos と同じ既定 workspace。
 const DEFAULT_WORKSPACE_ID: &str = "local";

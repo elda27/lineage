@@ -644,7 +644,7 @@ impl Database {
 mod tests {
     use super::*;
     use crate::domain::lineage::{LineageInput, LineageLedger};
-    use crate::infrastructure::crypto::Sha256Hasher;
+    use crate::infra::crypto::Sha256Hasher;
 
     fn link(ledger: &LineageLedger<'_>, prev: Option<&LineageRecord>, id: &str) -> LineageRecord {
         ledger.append_next(

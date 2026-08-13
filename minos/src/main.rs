@@ -5,15 +5,15 @@
 //! 入力は SQLite（`db/schema.sql`）に保存され、同時に Lineage の hash-chain へ追記される。
 //!
 //! レイヤ構成は docs/concept/MINIMAL_ARCHITECTURE.md に従う。
-//! 依存方向は presentation/infrastructure → application → domain。
+//! 依存方向は features/infra → app → domain（domain と app は lineage-core が持つ）。
 //! このファイルは composition root で、具体的な実装を組み立てて注入する役に徹する。
 
 // リリースビルドではコンソールウィンドウを出さない（常駐アプリのため）。
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod app;
-mod infrastructure;
-mod presentation;
+mod features;
+mod infra;
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -26,15 +26,15 @@ use gpui::{
 use gpui_component::Root;
 
 use lineage_core::domain::settings::Settings;
-use lineage_core::infrastructure::sqlite::Database;
+use lineage_core::infra::sqlite::Database;
 
 use crate::app::Services;
-use crate::infrastructure::system::{
+use crate::features::capture::view::CaptureView;
+use crate::features::window::AppWindow;
+use crate::infra::system::{
     ForegroundApp, SelectionCapture, SystemEvent, launcher, single_instance, tray,
     window as system_window,
 };
-use crate::presentation::capture_view::CaptureView;
-use crate::presentation::window_control::AppWindow;
 
 /// 自動起動（ログオン時・インストーラ直後）であることを示す引数。
 ///
@@ -242,5 +242,5 @@ fn focus_capture(
 ///
 /// 表示中でも他のアプリが前面にいるなら、Alt+Space は「隠す」ではなく「前に出す」であってほしい。
 fn is_foreground_ours() -> bool {
-    crate::infrastructure::system::foreground::capture_foreground().is_none()
+    crate::infra::system::foreground::capture_foreground().is_none()
 }

@@ -1,3 +1,5 @@
+import { fileURLToPath, URL } from "node:url";
+
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
@@ -8,6 +10,14 @@ const host = process.env.TAURI_DEV_HOST;
 // https://vite.dev/config/
 export default defineConfig(async () => ({
   plugins: [react(), tailwindcss()],
+
+  // tsconfig.json の paths と同じ対応。片方だけ足すと型は通ってビルドが落ちる。
+  resolve: {
+    alias: {
+      "@core": fileURLToPath(new URL("./core", import.meta.url)),
+      "@": fileURLToPath(new URL("./src", import.meta.url)),
+    },
+  },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //

@@ -5,7 +5,7 @@
 
 use std::cell::Cell;
 
-use crate::infrastructure::system::window;
+use crate::infra::system::window;
 
 /// minos の入力ウィンドウ。
 #[derive(Default)]

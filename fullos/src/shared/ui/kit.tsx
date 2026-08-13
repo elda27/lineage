@@ -1,7 +1,7 @@
 /**
  * 画面をまたいで使い回す見た目と部品。
  *
- * App.tsx と src/automation/* の両方から使うため、片方に置くと循環参照になる。
+ * シェル（app/）と features/* の両方から使うため、どちらかに置くと循環参照になる。
  */
 
 import type React from "react";
@@ -15,10 +15,12 @@ export const primaryButton = `${button} px-4 py-2.5 ${primaryLook}`;
 export const smallPrimaryButton = `${button} px-[13px] py-2 ${primaryLook}`;
 // 旧 .secondary は色指定が無く、feature-card 内では文字が白背景に白で消えていたため text-ink を明示する。
 export const secondaryButton = `${button} px-4 py-2.5 border border-[#deded8] bg-white text-ink`;
-export const quietButton = "grid place-items-center rounded-[7px] p-2 cursor-pointer hover:bg-[#eeeee9]";
+export const quietButton =
+  "grid place-items-center rounded-[7px] p-2 cursor-pointer hover:bg-[#eeeee9]";
 export const tagChip =
   "inline-flex rounded-[5px] bg-[#f1f0ed] px-[7px] py-0.5 text-[9px] font-medium text-[#6e706a]";
-export const eyebrow = "mb-3.5 text-[11px] font-semibold uppercase tracking-[0.13em] text-[#96978f]";
+export const eyebrow =
+  "mb-3.5 text-[11px] font-semibold uppercase tracking-[0.13em] text-[#96978f]";
 export const cardSurface = "overflow-hidden rounded-[11px] border border-line bg-white";
 export const subheading = "mb-[5px] text-[15px] font-bold";
 export const serifTitle = "font-serif font-normal tracking-[-0.025em]";
@@ -155,7 +157,6 @@ export function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
   );
 }
 
-
 export function SettingRow({
   title,
   desc,
@@ -187,4 +188,3 @@ export function Toggle({ value, setValue }: { value: boolean; setValue: (v: bool
     </button>
   );
 }
-

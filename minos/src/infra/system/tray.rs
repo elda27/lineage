@@ -24,7 +24,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows::core::{PCWSTR, w};
 
-use crate::infrastructure::system::{SelectionCapture, SystemEvent, foreground, tray_promotion};
+use crate::infra::system::{SelectionCapture, SystemEvent, foreground, tray_promotion};
 
 /// `RegisterHotKey` の識別子。プロセス内で一意ならよい。
 const HOTKEY_ID: i32 = 1;

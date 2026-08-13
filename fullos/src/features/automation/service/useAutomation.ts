@@ -4,8 +4,8 @@ import type {
   AutomationRule,
   AutomationRuleInput,
   AutomationRun,
-} from "../../core/domain/automation/AutomationRule";
-import { appClient } from "../app-client/appClient";
+} from "@core/domain/automation/AutomationRule";
+import { appClient } from "@/shared/api/appClient";
 
 export type LoadState = "loading" | "ready" | "error";
 

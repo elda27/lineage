@@ -27,11 +27,11 @@ impl<'a> VerifyLineage<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::application::capture_memo::{CaptureMemo, CaptureMemoInput};
+    use crate::app::capture::{CaptureMemo, CaptureMemoInput};
     use crate::domain::lineage::BrokenReason;
-    use crate::infrastructure::clock::{FixedClock, SequentialIds};
-    use crate::infrastructure::crypto::Sha256Hasher;
-    use crate::infrastructure::sqlite::Database;
+    use crate::infra::clock::{FixedClock, SequentialIds};
+    use crate::infra::crypto::Sha256Hasher;
+    use crate::infra::sqlite::Database;
 
     #[test]
     fn detects_a_tampered_ledger() {

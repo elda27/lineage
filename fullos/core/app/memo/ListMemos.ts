@@ -1,5 +1,5 @@
-import type { Memo } from "../domain/memo/Memo";
-import type { MemoRepository } from "../domain/ports/MemoRepository";
+import type { Memo } from "../../domain/memo/Memo";
+import type { MemoRepository } from "../../domain/ports/MemoRepository";
 
 /** 一覧の既定件数。ダッシュボードと検索画面はこの範囲から絞り込む。 */
 export const DEFAULT_MEMO_LIMIT = 200;

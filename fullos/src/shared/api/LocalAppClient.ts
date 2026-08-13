@@ -2,26 +2,26 @@ import Database from "@tauri-apps/plugin-sql";
 import { invoke } from "@tauri-apps/api/core";
 import { join, localDataDir } from "@tauri-apps/api/path";
 
-import { ListMemos, DEFAULT_MEMO_LIMIT } from "../../core/application/ListMemos";
-import { SuggestMetaTags, DEFAULT_SUGGESTION_LIMIT } from "../../core/application/SuggestMetaTags";
+import { ListMemos, DEFAULT_MEMO_LIMIT } from "@core/app/memo/ListMemos";
+import { SuggestMetaTags, DEFAULT_SUGGESTION_LIMIT } from "@core/app/meta/SuggestMetaTags";
 import type {
   AutomationRule,
   AutomationRuleInput,
   AutomationRun,
-} from "../../core/domain/automation/AutomationRule";
+} from "@core/domain/automation/AutomationRule";
 import {
   BROWSER_PROFILES_SETTING_KEY,
   parseBrowserProfileOverrides,
   resolveBrowserProfile,
   type BrowserProfile,
-} from "../../core/domain/automation/BrowserProfile";
+} from "@core/domain/automation/BrowserProfile";
 import {
   SqliteAutomationRuleRepository,
   SqliteAutomationRunRepository,
-} from "../../core/infrastructure/persistence/sqlite/SqliteAutomationRepository";
-import { SqliteSettingsRepository } from "../../core/infrastructure/persistence/sqlite/SqliteSettingsRepository";
-import { SqliteMemoRepository } from "../../core/infrastructure/persistence/sqlite/SqliteMemoRepository";
-import { SqliteMetaTagRepository } from "../../core/infrastructure/persistence/sqlite/SqliteMetaTagRepository";
+} from "@core/infra/persistence/sqlite/SqliteAutomationRepository";
+import { SqliteSettingsRepository } from "@core/infra/persistence/sqlite/SqliteSettingsRepository";
+import { SqliteMemoRepository } from "@core/infra/persistence/sqlite/SqliteMemoRepository";
+import { SqliteMetaTagRepository } from "@core/infra/persistence/sqlite/SqliteMetaTagRepository";
 import type { ApplicationPort } from "./ApplicationPort";
 
 /** minos がローカルで使う workspace（minos/src/app.rs の DEFAULT_WORKSPACE_ID）。 */
@@ -114,11 +114,7 @@ export async function createLocalAppClient(): Promise<ApplicationPort> {
     unregisterSchedule: () => invoke("schedule_unregister"),
 
     saveBrowserProfileOverrides: (overrides) =>
-      settings.set(
-        DEFAULT_WORKSPACE_ID,
-        BROWSER_PROFILES_SETTING_KEY,
-        JSON.stringify(overrides),
-      ),
+      settings.set(DEFAULT_WORKSPACE_ID, BROWSER_PROFILES_SETTING_KEY, JSON.stringify(overrides)),
   };
 }
 
@@ -145,10 +141,7 @@ async function runAutomation(
   const overrides = parseBrowserProfileOverrides(
     await settings.get(DEFAULT_WORKSPACE_ID, BROWSER_PROFILES_SETTING_KEY),
   );
-  const profile: BrowserProfile = resolveBrowserProfile(
-    rule.backendConfig.provider,
-    overrides,
-  );
+  const profile: BrowserProfile = resolveBrowserProfile(rule.backendConfig.provider, overrides);
 
   const prompt = await invoke<string>("automation_render", { ruleId, memoId });
   const text = await invoke<string>("browser_agent_run", { profile, prompt });

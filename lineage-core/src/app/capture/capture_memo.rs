@@ -150,9 +150,9 @@ fn collect_metas(body: &str, confirmed: &[MetaAssignment]) -> Vec<MetaAssignment
 mod tests {
     use super::*;
     use crate::domain::lineage::{LineageLedger, VerifyResult};
-    use crate::infrastructure::clock::{FixedClock, SequentialIds};
-    use crate::infrastructure::crypto::Sha256Hasher;
-    use crate::infrastructure::sqlite::Database;
+    use crate::infra::clock::{FixedClock, SequentialIds};
+    use crate::infra::crypto::Sha256Hasher;
+    use crate::infra::sqlite::Database;
 
     struct Fixture {
         db: Database,

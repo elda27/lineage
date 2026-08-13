@@ -6,7 +6,7 @@ mod schedule;
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        // 記録の読み出しは webview 側（core/infrastructure/persistence/sqlite）が行う。
+        // 記録の読み出しは webview 側（core/infra/persistence/sqlite）が行う。
         // Rust 側は SQLite ハンドルを渡すだけで、SQL は持たない。
         //
         // ただし自動化だけは例外で、lineage(links) への追記を伴うため同梱の agentos に

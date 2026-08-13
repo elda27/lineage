@@ -8,8 +8,8 @@ import {
   type AutomationRule,
   type AutomationRun,
   type RunStatus,
-} from "../../core/domain/automation/AutomationRule";
-import { relativeTime } from "../format";
+} from "@core/domain/automation/AutomationRule";
+import { relativeTime } from "@/shared/format";
 import {
   cardSurface,
   eyebrow,
@@ -21,9 +21,9 @@ import {
   tagChip,
   toggleKnob,
   toggleTrack,
-} from "../ui";
+} from "@/shared/ui/kit";
 import { RuleEditor } from "./RuleEditor";
-import { useAutomationRules, useAutomationRuns } from "./useAutomation";
+import { useAutomationRules, useAutomationRuns } from "@/features/automation/service/useAutomation";
 
 type Tab = "rules" | "runs";
 
@@ -232,9 +232,7 @@ function RunList({ runs, rules }: { runs: AutomationRun[]; rules: AutomationRule
           </span>
           <div className="min-w-0 flex-1">
             <h3 className="text-[12px] font-bold">{nameOf(run.ruleId)}</h3>
-            {run.error && (
-              <p className="my-1 text-[10px] leading-[1.6] text-[#a35]">{run.error}</p>
-            )}
+            {run.error && <p className="my-1 text-[10px] leading-[1.6] text-[#a35]">{run.error}</p>}
             <small className="text-[9px] text-[#a3a49e]">
               {relativeTime(run.startedAt)} · {backendLabel(run.backend)}
             </small>

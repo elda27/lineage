@@ -14,8 +14,9 @@ use lsp_types::{
     Range as LspRange, TextEdit,
 };
 
-use crate::app::Services;
 use lineage_core::domain::meta::{MatchKind, find_active_tag_token};
+
+use crate::app::Services;
 
 /// 一度に出す候補の上限。
 const MAX_SUGGESTIONS: usize = 12;

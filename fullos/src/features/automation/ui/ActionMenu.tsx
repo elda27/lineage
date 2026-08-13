@@ -5,9 +5,9 @@ import {
   statusLabel,
   type AutomationRule,
   type AutomationRun,
-} from "../../core/domain/automation/AutomationRule";
-import { appClient } from "../app-client/appClient";
-import { Icon, tagChip } from "../ui";
+} from "@core/domain/automation/AutomationRule";
+import { appClient } from "@/shared/api/appClient";
+import { Icon, tagChip } from "@/shared/ui/kit";
 
 type Phase =
   | { kind: "idle" }

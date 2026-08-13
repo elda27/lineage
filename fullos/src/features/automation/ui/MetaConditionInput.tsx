@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 
-import type { MetaCondition } from "../../core/domain/automation/AutomationRule";
-import type { MetaSuggestion } from "../../core/domain/meta/MetaTag";
-import { appClient } from "../app-client/appClient";
-import { Icon, tagChip } from "../ui";
+import type { MetaCondition } from "@core/domain/automation/AutomationRule";
+import type { MetaSuggestion } from "@core/domain/meta/MetaTag";
+import { appClient } from "@/shared/api/appClient";
+import { Icon, tagChip } from "@/shared/ui/kit";
 
 /** 一度に出す候補の上限（minos の MAX_SUGGESTIONS と揃える）。 */
 const MAX_SUGGESTIONS = 8;

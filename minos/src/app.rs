@@ -1,24 +1,24 @@
 //! composition root。
 //!
 //! 具体的な実装（SQLite / SHA-256 / システム時計）をユースケースに注入し、
-//! presentation 層には「何ができるか」だけを見せる。
-//! presentation はここより内側の実装を直接知らない。
+//! features 層（画面）には「何ができるか」だけを見せる。
+//! features はここより内側の実装を直接知らない。
 
 use std::rc::Rc;
 
 use anyhow::Result;
 
-use lineage_core::application::capture_memo::{CaptureMemo, CaptureMemoInput, CaptureMemoOutput};
-use lineage_core::application::complete_meta_tag::CompleteMetaTag;
-use lineage_core::application::settings::{LoadSettings, SaveSettings};
-use lineage_core::application::verify_lineage::VerifyLineage;
+use lineage_core::app::capture::{CaptureMemo, CaptureMemoInput, CaptureMemoOutput};
+use lineage_core::app::meta::CompleteMetaTag;
+use lineage_core::app::settings::{LoadSettings, SaveSettings};
+use lineage_core::app::lineage::VerifyLineage;
 use lineage_core::domain::capture::CaptureContext;
 use lineage_core::domain::lineage::VerifyResult;
 use lineage_core::domain::meta::{MetaAssignment, MetaSuggestion};
 use lineage_core::domain::settings::Settings;
-use lineage_core::infrastructure::clock::{SystemClock, UuidGenerator};
-use lineage_core::infrastructure::crypto::Sha256Hasher;
-use lineage_core::infrastructure::sqlite::Database;
+use lineage_core::infra::clock::{SystemClock, UuidGenerator};
+use lineage_core::infra::crypto::Sha256Hasher;
+use lineage_core::infra::sqlite::Database;
 
 /// minos は単一利用者なので、既定のワークスペースは1つ固定。
 /// クラウド接続に切り替えるときは、ここが利用者ごとの workspace になる。

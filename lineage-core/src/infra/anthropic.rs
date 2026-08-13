@@ -214,7 +214,7 @@ mod tests {
 
     #[test]
     fn an_unknown_provider_is_rejected_before_touching_the_network() {
-        let credentials = crate::infrastructure::credentials::StubCredentialStore(Some("k".into()));
+        let credentials = crate::infra::credentials::StubCredentialStore(Some("k".into()));
         let backend = AnthropicBackend::new(&credentials);
         let request = InferenceRequest {
             provider: "openai".into(),
@@ -227,7 +227,7 @@ mod tests {
 
     #[test]
     fn a_missing_api_key_is_reported_as_such() {
-        let credentials = crate::infrastructure::credentials::StubCredentialStore(None);
+        let credentials = crate::infra::credentials::StubCredentialStore(None);
         let backend = AnthropicBackend::new(&credentials);
         let request = InferenceRequest {
             provider: PROVIDER.into(),

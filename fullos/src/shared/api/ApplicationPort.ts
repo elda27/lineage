@@ -1,13 +1,13 @@
-import type { Account } from "../../core/domain/account/Account";
+import type { Account } from "@core/domain/account/Account";
 import type {
   AutomationRule,
   AutomationRuleInput,
   AutomationRun,
-} from "../../core/domain/automation/AutomationRule";
-import type { BrowserProfile } from "../../core/domain/automation/BrowserProfile";
-import type { MetaSuggestion } from "../../core/domain/meta/MetaTag";
-import type { Memo } from "../../core/domain/memo/Memo";
-import type { StorageUsage } from "../../core/domain/storage/StorageUsage";
+} from "@core/domain/automation/AutomationRule";
+import type { BrowserProfile } from "@core/domain/automation/BrowserProfile";
+import type { MetaSuggestion } from "@core/domain/meta/MetaTag";
+import type { Memo } from "@core/domain/memo/Memo";
+import type { StorageUsage } from "@core/domain/storage/StorageUsage";
 
 /**
  * UI が依存する唯一のインターフェース。
@@ -87,9 +87,7 @@ export interface ApplicationPort {
    */
   browserProfileOverrides(): Promise<Record<string, Partial<BrowserProfile>> | null>;
 
-  saveBrowserProfileOverrides(
-    overrides: Record<string, Partial<BrowserProfile>>,
-  ): Promise<void>;
+  saveBrowserProfileOverrides(overrides: Record<string, Partial<BrowserProfile>>): Promise<void>;
 
   /**
    * 定期実行が OS のスケジューラに登録されているか。

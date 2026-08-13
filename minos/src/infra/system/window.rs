@@ -17,7 +17,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows::core::BOOL;
 
-use crate::infrastructure::system::foreground;
+use crate::infra::system::foreground;
 
 /// gpui が登録しているウィンドウクラス名（gpui_windows の `WINDOW_CLASS_NAME`）。
 const GPUI_WINDOW_CLASS: &str = "Zed::Window";

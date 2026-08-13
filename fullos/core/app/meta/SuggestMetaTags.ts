@@ -1,5 +1,5 @@
-import { rankCandidates, type MetaSuggestion } from "../domain/meta/MetaTag";
-import type { MetaTagRepository } from "../domain/ports/MetaTagRepository";
+import { rankCandidates, type MetaSuggestion } from "../../domain/meta/MetaTag";
+import type { MetaTagRepository } from "../../domain/ports/MetaTagRepository";
 
 /** 補完候補として読み出す学習済みタグの上限（minos の TAG_POOL_LIMIT と同じ）。 */
 const TAG_POOL_LIMIT = 500;

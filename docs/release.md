@@ -31,7 +31,7 @@ tauri-cli v2.11.4 の `crates/tauri-bundler/src/bundle/windows/msi/main.wxs` で
 インストーラ名とインストール先は `tauri.conf.json` の `productName`（= `lineage`）で決まる。
 実行ファイル名だけは `mainBinaryName` で `fullos.exe` に固定してある。minos が同じ
 ディレクトリの `fullos.exe` を名前決め打ちで起動するため
-（[minos/src/infrastructure/system/launcher.rs](../minos/src/infrastructure/system/launcher.rs)）、
+（[minos/src/infra/system/launcher.rs](../minos/src/infra/system/launcher.rs)）、
 ここを変えると起動導線が壊れる。
 
 minos.exe は
@@ -74,7 +74,7 @@ ExitDialog のチェックボックス経由なので UI 付きのときしか�
 
 多重起動そのものは minos 側の名前付き Mutex で抑止されるので、ログオン起動と
 ショートカットを併用してもプロセスは増えない
-（[minos/src/infrastructure/system/single_instance.rs](../minos/src/infrastructure/system/single_instance.rs)）。
+（[minos/src/infra/system/single_instance.rs](../minos/src/infra/system/single_instance.rs)）。
 
 `--autostart` のときはウィンドウを作るだけで一度も表示しない（gpui の
 `WindowOptions.show = false`）。作ってから隠す作りにすると、gpui が最初の描画を
@@ -177,7 +177,7 @@ just msi
 - エンドポイント: `https://github.com/elda27/lineage/releases/latest/download/latest.json`
   （常に最新リリースへ解決される GitHub の固定 URL）
 - 起動時に一度だけ黙ってチェックし、更新があれば画面上部にバーを出す
-  （[fullos/src/updater/useUpdater.ts](../fullos/src/updater/useUpdater.ts)）。
+  （[fullos/src/features/updater/service/useUpdater.ts](../fullos/src/features/updater/service/useUpdater.ts)）。
 - ユーザーが「更新する」を押すと MSI を取得・検証・適用し、`relaunch()` で再起動する。
 - ブラウザでの `pnpm dev` には Tauri のランタイムが無いためチェックは失敗するが、
   起動時チェックは `silent` なので UI には出ない（コンソールにのみ記録）。

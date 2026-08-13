@@ -39,7 +39,7 @@ Tauri アプリも Web ビルドも、ローカル接続とクラウド接続の
                       - R2（添付・エクスポート）
 
 ポイント:
-- domain / application 層は両モードで「同一の TS ソース」を再利用する。
+- domain / app 層は両モードで「同一の TS ソース」を再利用する。
 - frontend は「ApplicationPort」越しに呼ぶ。実装は2つ。
     - LocalAppClient … in-process でアプリケーションサービスを直接呼ぶ（認証なし）
     - HttpAppClient  … Workers の REST API を fetch する（JWT を付ける＝認証アリ）
@@ -68,18 +68,35 @@ Tauri アプリも Web ビルドも、ローカル接続とクラウド接続の
 
 2. DDD を意図したフォルダ構成
 
-レイヤを物理ディレクトリで分離する。依存方向は外→内（presentation/infrastructure → application → domain）。
+レイヤを物理ディレクトリで分離する。依存方向は外→内（features(presentation)/infra → app → domain）。
 domain は他のどの層にも依存しない。
+
+層の名前は短縮形を使う（`application` → `app`、`infrastructure` → `infra`）。
+presentation 層は層ごとではなく**機能ごと**に切り、`features/<機能>/` の下に
+その機能の api / ui / service をまとめる。画面を1つ足すときに開くフォルダを1つにするため。
 
 lineage/
 ├─ src/                         # フロントエンド（presentation）
-│   ├─ presentation/            # React UI（画面・コンポーネント）
-│   │   ├─ pages/               #   /tables, /tables/:id, /rows/:id
-│   │   └─ components/
-│   └─ app-client/              # ApplicationPort と2実装
-│       ├─ ApplicationPort.ts   #   UI が依存するインターフェース
-│       ├─ LocalAppClient.ts    #   Tauri: in-process 呼び出し
-│       └─ HttpAppClient.ts     #   Cloud: fetch
+│   ├─ main.tsx                 #   エントリ
+│   ├─ app/                     # シェル（composition root）
+│   │   ├─ App.tsx              #   どの画面を出すか + 画面をまたぐ状態
+│   │   └─ Sidebar.tsx
+│   ├─ features/                # ★ 機能ごとの presentation 層
+│   │   ├─ memo/                #   記録（ホーム・検索・詳細）
+│   │   │   ├─ ui/              #     画面・コンポーネント
+│   │   │   └─ service/         #     画面のための状態（hooks）と表示用モデル
+│   │   ├─ automation/          #   自動化（ui/ + service/）
+│   │   ├─ settings/            #   設定
+│   │   ├─ updater/             #   自動更新
+│   │   └─ workspace/           #   アカウント・ストレージ使用量
+│   └─ shared/                  # 機能をまたいで使うもの
+│       ├─ api/                 #   ApplicationPort と2実装
+│       │   ├─ ApplicationPort.ts #   UI が依存するインターフェース
+│       │   ├─ LocalAppClient.ts  #   Tauri: in-process 呼び出し
+│       │   └─ HttpAppClient.ts   #   Cloud: fetch
+│       ├─ ui/kit.tsx           #   見た目の共通部品
+│       ├─ format.ts
+│       └─ navigation.ts
 │
 ├─ core/                        # フレームワーク非依存の中核（両ターゲット共有）
 │   ├─ domain/                  # ★ 何にも依存しない
@@ -88,13 +105,15 @@ lineage/
 │   │   ├─ table/               #   Table/Row/Cell
 │   │   ├─ shared/              #   Hash, Id, Clock などの値オブジェクト
 │   │   └─ ports/               #   Repository インターフェース（実装は infra）
-│   ├─ application/             # ユースケース（アプリケーションサービス）
-│   │   ├─ CreateTable.ts
-│   │   ├─ AppendRow.ts
-│   │   ├─ WriteMemo.ts         #   行メモ→document→lineage を1トランザクションで
-│   │   ├─ AttachFile.ts
-│   │   └─ VerifyLineage.ts     #   hash-chain 検証
-│   └─ infrastructure/          # ports の実装（外側）
+│   ├─ app/                     # ユースケース（アプリケーションサービス）
+│   │   ├─ memo/                #   ★ ここも機能単位。1ユースケース＝1ファイル
+│   │   │   ├─ WriteMemo.ts     #     行メモ→document→lineage を1トランザクションで
+│   │   │   └─ ListMemos.ts
+│   │   ├─ meta/
+│   │   │   └─ SuggestMetaTags.ts
+│   │   └─ lineage/
+│   │       └─ VerifyLineage.ts #     hash-chain 検証
+│   └─ infra/                   # ports の実装（外側）
 │       ├─ persistence/
 │       │   ├─ sqlite/          #   SqliteAssetRepository ほか（plugin-sql / better-sqlite3）
 │       │   └─ d1/              #   D1AssetRepository ほか
@@ -114,17 +133,34 @@ lineage/
 └─ doc/
 
 依存ルール:
-- domain は import で application/infrastructure/presentation を参照しない。
-- application は domain と ports(interface) のみに依存する。
-- worker / src-tauri / src は「組み立て役(composition root)」であり、
-  ここで具体的な Repository 実装を application に注入する。
+- domain は import で app/infra/features を参照しない。
+- app（ユースケース）は domain と ports(interface) のみに依存する。
+- features は `shared/api` の ApplicationPort 越しにだけ app を呼ぶ。
+  機能どうしの参照は「ui は他機能の ui を使ってよいが、service は自機能のものだけ」を目安にする。
+- worker / src-tauri / src/app は「組み立て役(composition root)」であり、
+  ここで具体的な Repository 実装を app に注入する。
+
+import は `@core/*`（core/）と `@/*`（src/）の別名で書く。
+対応は tsconfig.json の `paths` と vite.config.ts の `resolve.alias` の2か所にあり、
+片方だけ足すと型は通ってビルドが落ちる。
 
 ローカル側の Rust クレート（lineage-core）:
 
 ローカルのデスクトップ側は Rust で書かれた3つの実行ファイルからなり、
 ドメイン・ユースケース・永続化は lineage-core クレート1本を共有する。
 
-lineage-core/           # domain / application / infrastructure（上と同じ層構成）
+lineage-core/src/app/ も同じ規則で機能単位に分ける。
+機能の `mod.rs` がその機能のユースケースを再輸出するので、呼び出し側が見るのは
+`lineage_core::app::<機能>::<ユースケース>` だけになり、ファイルの割り方に依存しない。
+
+lineage-core/src/app/
+├─ automation/          # run（実行の入口）/ schedule（cron 判定）/ backend（実行環境の線引き）
+├─ capture/             # CaptureMemo（入力1件の確定）
+├─ lineage/             # VerifyLineage（hash-chain 検証）
+├─ meta/                # CompleteMetaTag（`#` の補完）
+└─ settings/            # LoadSettings / SaveSettings
+
+lineage-core/           # domain / app / infra（上と同じ層構成）
 minos/                  # クイック入力（gpui）。lineage-core に依存
 agentos/                # 自動化の実行（CUI・常駐しない）。lineage-core に依存
 fullos/src-tauri/       # Tauri シェル。agentos.exe を同梱して呼び出す
@@ -291,9 +327,9 @@ WriteMemo ユースケースの流れ（真正性込み）
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { jwtVerify, createRemoteJWKSet } from "jose";
-import { D1AssetRepository, D1LineageRepository } from "../core/infrastructure/persistence/d1";
-import { Sha256Hasher } from "../core/infrastructure/crypto/Sha256Hasher";
-import { WriteMemo } from "../core/application/WriteMemo";
+import { D1AssetRepository, D1LineageRepository } from "@core/infra/persistence/d1";
+import { Sha256Hasher } from "@core/infra/crypto/Sha256Hasher";
+import { WriteMemo } from "@core/app/WriteMemo";
 
 type Env = {
   DB: D1Database;
@@ -376,12 +412,12 @@ src-tauri/src/lib.rs:
   tauri::Builder::default()
     .plugin(tauri_plugin_sql::Builder::default().build())
 
-LocalAppClient（src/app-client/LocalAppClient.ts）
+LocalAppClient（src/shared/api/LocalAppClient.ts）
 
 import Database from "@tauri-apps/plugin-sql";
-import { SqliteAssetRepository, SqliteLineageRepository } from "../../core/infrastructure/persistence/sqlite";
-import { Sha256Hasher } from "../../core/infrastructure/crypto/Sha256Hasher";
-import { WriteMemo } from "../../core/application/WriteMemo";
+import { SqliteAssetRepository, SqliteLineageRepository } from "@core/infra/persistence/sqlite";
+import { Sha256Hasher } from "@core/infra/crypto/Sha256Hasher";
+import { WriteMemo } from "@core/app/WriteMemo";
 
 export async function createLocalAppClient(): Promise<ApplicationPort> {
   const db = await Database.load("sqlite:lineage.db"); // schema.sql を初回適用

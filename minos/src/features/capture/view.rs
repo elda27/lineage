@@ -22,13 +22,14 @@ use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::input::{Backspace, Escape, Input, InputEvent, InputState};
 use gpui_component::{ActiveTheme, Sizable, StyledExt, h_flex, v_flex};
 
-use crate::app::Services;
 use lineage_core::domain::capture::CaptureContext;
 use lineage_core::domain::meta::{MetaAssignment, MetaSource, auto_label, split_completed_tags};
-use crate::infrastructure::system::foreground;
-use crate::infrastructure::system::{ForegroundApp, SelectionCapture, launcher};
-use crate::presentation::meta_completion::MetaCompletionProvider;
-use crate::presentation::window_control::AppWindow;
+
+use crate::app::Services;
+use crate::features::capture::meta_completion::MetaCompletionProvider;
+use crate::features::window::AppWindow;
+use crate::infra::system::foreground;
+use crate::infra::system::{ForegroundApp, SelectionCapture, launcher};
 
 /// 保存の手応えを見せてから引っ込むまでの時間。
 const HIDE_AFTER_SAVE: Duration = Duration::from_millis(700);

@@ -8,7 +8,7 @@ minosは瞬時に起動し、ユーザの入力を受け付けることができ
 
 インストーラはminosをログオン時とインストール完了時に自動起動する（[docs/release.md](release.md#minos-の自動起動)）。自動起動のときは`--autostart`が付き、入力画面を出さずトレイに入るだけになる。ユーザ自身がショートカットから起動したときだけ入力画面が開く。すでに常駐している状態で`--autostart`付きの起動が重なった場合は、既存のウィンドウを出さずに黙って終了する。
 
-Windows 11 は初めて見るトレイアイコンをオーバーフロー（`^`）に隠すため、初回だけ通知領域に表示されるよう設定する（[minos/src/infrastructure/system/tray_promotion.rs](../minos/src/infrastructure/system/tray_promotion.rs)）。昇格を要求する API は無く、Windows の表示設定 `HKCU\Control Panel\NotifyIconSettings\<hash>\IsPromoted` を直接書く非公開の手段しかない。設定済みの場合は触らないので、ユーザが「隠す」を選んだらその選択が残る。反映は Windows が設定を読み直してからなので、初回起動時ではなく次の起動から見えるようになる。
+Windows 11 は初めて見るトレイアイコンをオーバーフロー（`^`）に隠すため、初回だけ通知領域に表示されるよう設定する（[minos/src/infra/system/tray_promotion.rs](../minos/src/infra/system/tray_promotion.rs)）。昇格を要求する API は無く、Windows の表示設定 `HKCU\Control Panel\NotifyIconSettings\<hash>\IsPromoted` を直接書く非公開の手段しかない。設定済みの場合は触らないので、ユーザが「隠す」を選んだらその選択が残る。反映は Windows が設定を読み直してからなので、初回起動時ではなく次の起動から見えるようになる。
 
 1. Alt+Spaceで呼び出すことができる。画面はテキストボックス1つと送信ボタン1つを有する。送信ボタンのクリックまた、Ctrl+Enterで送信することができる。
    - 画面中央に表示される

@@ -6,8 +6,8 @@ import {
   DEFAULT_BROWSER_PROFILES,
   providerLabel,
   type BrowserProfile,
-} from "../../core/domain/automation/BrowserProfile";
-import { appClient } from "../app-client/appClient";
+} from "@core/domain/automation/BrowserProfile";
+import { appClient } from "@/shared/api/appClient";
 import {
   Icon,
   secondaryButton,
@@ -15,8 +15,8 @@ import {
   smallPrimaryButton,
   toggleKnob,
   toggleTrack,
-} from "../ui";
-import { useCredentialStatus } from "./useAutomation";
+} from "@/shared/ui/kit";
+import { useCredentialStatus } from "@/features/automation/service/useAutomation";
 
 /**
  * 設定画面の自動化セクション。

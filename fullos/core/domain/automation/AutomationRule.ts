@@ -151,9 +151,7 @@ export function ruleSummary(rule: AutomationRule): string {
     case "manual":
       return conditions ? `${conditions} の記録に手動で実行` : "選んだ記録に手動で実行";
     case "meta_match":
-      return conditions
-        ? `${conditions} が付いた記録を自動で処理`
-        : "すべての記録を自動で処理";
+      return conditions ? `${conditions} が付いた記録を自動で処理` : "すべての記録を自動で処理";
     case "schedule":
       return `${rule.trigger.cron ?? "(未設定)"} に${conditions ? ` ${conditions} を` : ""}実行`;
   }
