@@ -1,6 +1,6 @@
 [package]
 name = "lineage-core"
-version = "0.0.5"
+version = "0.0.6"
 edition = "2024"
 description = "Lineage の中核。ドメイン・ユースケース・永続化を minos / agentos / fullos で共有する。"
 

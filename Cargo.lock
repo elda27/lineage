@@ -131,7 +131,7 @@ dependencies = [
 
 [[package]]
 name = "agentos"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "anyhow",
  "clap",
@@ -4005,7 +4005,7 @@ dependencies = [
 
 [[package]]
 name = "lineage-core"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "anyhow",
  "chrono",
@@ -4343,7 +4343,7 @@ dependencies = [
 
 [[package]]
 name = "minos"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "anyhow",
  "async-channel",
