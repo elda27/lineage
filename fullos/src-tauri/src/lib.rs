@@ -8,6 +8,9 @@ fn greet(name: &str) -> String {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        // 記録の読み出しは webview 側（core/infrastructure/persistence/sqlite）が行う。
+        // Rust 側は SQLite ハンドルを渡すだけで、SQL は持たない。
+        .plugin(tauri_plugin_sql::Builder::default().build())
         .setup(|app| {
             // GitHub Release の latest.json を見に行く自動更新。
             // エンドポイントと公開鍵は tauri.conf.json の plugins.updater。

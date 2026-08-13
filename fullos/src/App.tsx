@@ -1,5 +1,8 @@
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { UpdateBanner } from "./updater/UpdateBanner";
+import { createLocalAppClient } from "./app-client/LocalAppClient";
+import { bodyPreview, isTask, metaText, type Memo as RecordedMemo } from "../core/domain/memo/Memo";
+import { absoluteDateTime, longDate, relativeTime } from "./format";
 import "./App.css";
 
 type IconName =
@@ -25,15 +28,49 @@ function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
 }
 
 type Page = "home" | "search" | "automation" | "settings";
-type Memo = { id: number; title: string; body: string; tags: string[]; time: string; type: "task" | "memo"; done?: boolean };
 
-const initialMemos: Memo[] = [
-  { id: 1, title: "プロジェクトの方向性を整理する", body: "次回のミーティングまでに、ロードマップと優先順位をまとめる。", tags: ["仕事", "企画"], time: "10分前", type: "task" },
-  { id: 2, title: "デザインリサーチのメモ", body: "余白を広く取り、情報の階層を明確にする。操作はできるだけ軽やかに。", tags: ["アイデア", "デザイン"], time: "1時間前", type: "memo" },
-  { id: 3, title: "請求書を送付", body: "8月分の請求書を確認してクライアントへ送る。", tags: ["タスク", "仕事"], time: "昨日", type: "task" },
-  { id: 4, title: "読みたい本", body: "The Design of Everyday Things / ドン・ノーマン", tags: ["個人", "読書"], time: "8月10日", type: "memo" },
-  { id: 5, title: "週末の買い物リスト", body: "コーヒー豆、観葉植物の土、電球。", tags: ["生活"], time: "8月9日", type: "memo" },
-];
+/** 画面が扱う記録。minos が保存した Memo を表示用に整えたもの。 */
+type Memo = { id: string; title: string; body: string; preview: string; tags: string[]; createdAt: string; type: "task" | "memo"; done?: boolean };
+
+type LoadState = "loading" | "ready" | "error";
+
+function toView(memo: RecordedMemo): Memo {
+  return {
+    id: memo.id,
+    title: memo.title,
+    body: memo.bodyText,
+    // タイトルは本文1行目なので、一覧では続きだけを見せる。
+    preview: bodyPreview(memo.bodyText),
+    tags: memo.metas.map(metaText),
+    createdAt: memo.createdAt,
+    type: isTask(memo) ? "task" : "memo",
+  };
+}
+
+/** minos が書いたローカル DB から記録を読み込む。 */
+function useRecordedMemos() {
+  const [memos, setMemos] = useState<Memo[]>([]);
+  const [status, setStatus] = useState<LoadState>("loading");
+
+  useEffect(() => {
+    let active = true;
+    createLocalAppClient()
+      .then((client) => client.listMemos())
+      .then((records) => {
+        if (!active) return;
+        setMemos(records.map(toView));
+        setStatus("ready");
+      })
+      .catch((error) => {
+        if (!active) return;
+        console.error("記録を読み込めませんでした", error);
+        setStatus("error");
+      });
+    return () => { active = false; };
+  }, []);
+
+  return { memos, setMemos, status };
+}
 
 function Sidebar({ page, setPage }: { page: Page; setPage: (p: Page) => void }) {
   const items: { page: Page; label: string; icon: IconName }[] = [
@@ -54,25 +91,33 @@ function SearchBox({ value, onChange, onSubmit, large = false }: { value: string
 function MemoCard({ memo, onOpen, onToggle }: { memo: Memo; onOpen:()=>void; onToggle:()=>void }) {
   return <article className="memo-card" onClick={onOpen} tabIndex={0} onKeyDown={e=>e.key === "Enter" && onOpen()}>
     <div className={`type-icon ${memo.type}`}><Icon name={memo.type === "task" ? "check" : "file"}/></div>
-    <div className="memo-content"><div className="memo-title"><h3 className={memo.done ? "done" : ""}>{memo.title}</h3>{memo.type === "task" && <button className={`check-button ${memo.done ? "checked" : ""}`} aria-label="完了状態を切り替え" onClick={e=>{e.stopPropagation(); onToggle();}}>{memo.done && <Icon name="check" size={13}/>}</button>}</div><p>{memo.body}</p><div className="meta-row">{memo.tags.map(tag=><span className="tag" key={tag}>#{tag}</span>)}<span className="time"><Icon name="clock" size={13}/>{memo.time}</span></div></div>
+    <div className="memo-content"><div className="memo-title"><h3 className={memo.done ? "done" : ""}>{memo.title}</h3>{memo.type === "task" && <button className={`check-button ${memo.done ? "checked" : ""}`} aria-label="完了状態を切り替え" onClick={e=>{e.stopPropagation(); onToggle();}}>{memo.done && <Icon name="check" size={13}/>}</button>}</div>{memo.preview && <p>{memo.preview}</p>}<div className="meta-row">{memo.tags.map(tag=><span className="tag" key={tag}>#{tag}</span>)}<span className="time"><Icon name="clock" size={13}/>{relativeTime(memo.createdAt)}</span></div></div>
     <button className="card-arrow" aria-label="詳細を開く"><Icon name="chevron"/></button>
   </article>;
 }
 
-function Home({ memos, setPage, openMemo, toggleMemo, createMemo }: { memos:Memo[]; setPage:(p:Page)=>void; openMemo:(m:Memo)=>void; toggleMemo:(id:number)=>void; createMemo:()=>void }) {
+/** 読み込み中・失敗・0件をひと通り出す一覧。 */
+function MemoList({ memos, status, openMemo, toggleMemo, className = "memo-list", empty }: { memos:Memo[]; status:LoadState; openMemo:(m:Memo)=>void; toggleMemo:(id:string)=>void; className?:string; empty:{icon:IconName;title:string;hint:string} }) {
+  if (status === "loading") return <div className="empty"><Icon name="clock" size={30}/><h3>記録を読み込んでいます…</h3></div>;
+  if (status === "error") return <div className="empty"><Icon name="inbox" size={30}/><h3>記録を読み込めませんでした</h3><p>minos のデータベース（%LOCALAPPDATA%\minos\lineage.db）を開けませんでした。</p></div>;
+  if (!memos.length) return <div className="empty"><Icon name={empty.icon} size={30}/><h3>{empty.title}</h3><p>{empty.hint}</p></div>;
+  return <div className={className}>{memos.map(m=><MemoCard memo={m} key={m.id} onOpen={()=>openMemo(m)} onToggle={()=>toggleMemo(m.id)}/>)}</div>;
+}
+
+function Home({ memos, status, setPage, openMemo, toggleMemo, createMemo }: { memos:Memo[]; status:LoadState; setPage:(p:Page)=>void; openMemo:(m:Memo)=>void; toggleMemo:(id:string)=>void; createMemo:()=>void }) {
   const [query,setQuery] = useState("");
   return <div className="page home-page"><header className="topbar"><div/><button className="quiet" aria-label="テーマ設定を開く" onClick={()=>setPage("settings")}><Icon name="moon" size={17}/></button><button className="primary small" onClick={createMemo}><Icon name="plus" size={16}/>新しいメモ</button></header>
-    <div className="hero"><p className="eyebrow">2026年8月12日 水曜日</p><h1>おかえりなさい、山田さん。</h1><p>思考の続きを、ここから始めましょう。</p><SearchBox large value={query} onChange={setQuery} onSubmit={()=>setPage("search")}/></div>
+    <div className="hero"><p className="eyebrow">{longDate(new Date())}</p><h1>おかえりなさい、山田さん。</h1><p>思考の続きを、ここから始めましょう。</p><SearchBox large value={query} onChange={setQuery} onSubmit={()=>setPage("search")}/></div>
     <section className="dashboard"><div className="section-heading"><div><h2>最近の記録</h2><p>新しく追加・更新されたメモ</p></div><button className="text-button" onClick={()=>setPage("search")}>すべて表示 <Icon name="arrow" size={15}/></button></div>
-      <div className="memo-list">{memos.slice(0,4).map(m=><MemoCard memo={m} key={m.id} onOpen={()=>openMemo(m)} onToggle={()=>toggleMemo(m.id)}/>)}</div>
+      <MemoList memos={memos.slice(0,4)} status={status} openMemo={openMemo} toggleMemo={toggleMemo} empty={{icon:"inbox",title:"まだ記録がありません",hint:"minos を Alt + Space で呼び出して、最初のメモを残しましょう。"}}/>
       <div className="quick-grid"><button onClick={()=>setPage("search")}><span className="quick-icon lavender"><Icon name="inbox"/></span><span><b>すべての記録</b><small>{memos.length} 件のメモとタスク</small></span><Icon name="arrow"/></button><button onClick={()=>setPage("automation")}><span className="quick-icon mint"><Icon name="sparkles"/></span><span><b>自動化ルール</b><small>2 件が有効</small></span><Icon name="arrow"/></button></div>
     </section></div>;
 }
 
-function SearchPage({ memos, openMemo, toggleMemo }: { memos:Memo[]; openMemo:(m:Memo)=>void; toggleMemo:(id:number)=>void }) {
+function SearchPage({ memos, status, openMemo, toggleMemo }: { memos:Memo[]; status:LoadState; openMemo:(m:Memo)=>void; toggleMemo:(id:string)=>void }) {
   const [query,setQuery]=useState(""); const [filter,setFilter]=useState("すべて");
   const results=useMemo(()=>memos.filter(m=>(filter==="すべて" || (filter==="タスク" ? m.type==="task" : m.type==="memo")) && `${m.title} ${m.body} ${m.tags.join(" ")}`.toLowerCase().includes(query.toLowerCase())),[memos,query,filter]);
-  return <div className="page standard-page"><div className="page-header"><p className="eyebrow">LIBRARY</p><h1>検索</h1><p>これまでに残したすべての記録を探せます。</p></div><SearchBox large value={query} onChange={setQuery}/><div className="filter-row">{["すべて","メモ","タスク"].map(f=><button className={filter===f?"selected":""} onClick={()=>setFilter(f)} key={f}>{f}</button>)}<span>{results.length} 件</span></div><div className="memo-list search-results">{results.map(m=><MemoCard key={m.id} memo={m} onOpen={()=>openMemo(m)} onToggle={()=>toggleMemo(m.id)}/>)}</div>{!results.length&&<div className="empty"><Icon name="search" size={30}/><h3>一致する記録がありません</h3><p>キーワードや絞り込みを変えてみてください。</p></div>}</div>;
+  return <div className="page standard-page"><div className="page-header"><p className="eyebrow">LIBRARY</p><h1>検索</h1><p>これまでに残したすべての記録を探せます。</p></div><SearchBox large value={query} onChange={setQuery}/><div className="filter-row">{["すべて","メモ","タスク"].map(f=><button className={filter===f?"selected":""} onClick={()=>setFilter(f)} key={f}>{f}</button>)}<span>{results.length} 件</span></div><MemoList memos={results} status={status} openMemo={openMemo} toggleMemo={toggleMemo} className="memo-list search-results" empty={{icon:"search",title:"一致する記録がありません",hint:"キーワードや絞り込みを変えてみてください。"}}/></div>;
 }
 
 function Automation() { const [rules,setRules]=useState([{name:"タスクを自動でまとめる",desc:"#タスク が付いた記録を今日のタスクリストへ追加",on:true},{name:"アイデアを週報へ整理",desc:"毎週金曜日に #アイデア の記録を要約",on:true},{name:"読書メモをアーカイブ",desc:"読み終えた本のメモを月末にアーカイブ",on:false}]); return <div className="page standard-page"><div className="page-header row-header"><div><p className="eyebrow">WORKFLOWS</p><h1>自動化</h1><p>記録に基づくルールで、いつもの作業を軽くします。</p></div><button className="primary"><Icon name="plus"/>新しいルール</button></div><div className="feature-card"><span><Icon name="sparkles" size={26}/></span><div><small>LINEAGE AGENT</small><h2>記録から、次のアクションへ。</h2><p>メモに含まれる文脈やメタ情報を読み取り、あなたに代わって整理・実行します。</p></div><button className="secondary"><Icon name="play" size={15}/>Agentを試す</button></div><h2 className="subheading">自動化ルール</h2><div className="rule-list">{rules.map((rule,i)=><article key={rule.name}><span className="rule-icon"><Icon name="command"/></span><div><h3>{rule.name}</h3><p>{rule.desc}</p><small>{rule.on?"有効・最終実行 2時間前":"停止中"}</small></div><button aria-label={`${rule.name}を切り替え`} className={`toggle ${rule.on?"on":""}`} onClick={()=>setRules(r=>r.map((v,n)=>n===i?{...v,on:!v.on}:v))}><i/></button><button className="quiet"><Icon name="more"/></button></article>)}</div></div> }
@@ -81,6 +126,6 @@ function SettingsPage() { const [launch,setLaunch]=useState(true),[copy,setCopy]
 function SettingRow({title,desc,children}:{title:string;desc:string;children:React.ReactNode}){return <div className="setting-row"><div><b>{title}</b><small>{desc}</small></div>{children}</div>}
 function Toggle({value,setValue}:{value:boolean;setValue:(v:boolean)=>void}){return <button role="switch" aria-checked={value} className={`toggle ${value?"on":""}`} onClick={()=>setValue(!value)}><i/></button>}
 
-function Detail({ memo, close, update, remove }: { memo:Memo; close:()=>void; update:(m:Memo)=>void; remove:()=>void }) { const [editing,setEditing]=useState(false),[title,setTitle]=useState(memo.title),[body,setBody]=useState(memo.body); const save=(e:FormEvent)=>{e.preventDefault();update({...memo,title,body});setEditing(false)}; return <div className="overlay" onMouseDown={e=>e.target===e.currentTarget&&close()}><aside className="detail-panel"><header><button className="back-button" onClick={close}>← 戻る</button><div><button className="quiet" onClick={()=>setEditing(true)}><Icon name="edit"/></button><button className="quiet danger" onClick={remove}><Icon name="trash"/></button></div></header><div className="detail-icon"><Icon name={memo.type==="task"?"check":"file"}/></div>{editing?<form onSubmit={save} className="edit-form"><input autoFocus value={title} onChange={e=>setTitle(e.target.value)}/><textarea value={body} onChange={e=>setBody(e.target.value)}/><div><button type="button" className="secondary" onClick={()=>setEditing(false)}>キャンセル</button><button className="primary">保存する</button></div></form>:<><h1>{memo.title}</h1><p className="detail-body">{memo.body}</p></>}<div className="detail-info"><div><span>作成日時</span><b>2026年8月12日 10:24</b></div><div><span>種類</span><b>{memo.type==="task"?"タスク":"メモ"}</b></div><div><span>メタ情報</span><div>{memo.tags.map(t=><span className="tag" key={t}>#{t}</span>)}</div></div></div></aside></div> }
+function Detail({ memo, close, update, remove }: { memo:Memo; close:()=>void; update:(m:Memo)=>void; remove:()=>void }) { const [editing,setEditing]=useState(false),[title,setTitle]=useState(memo.title),[body,setBody]=useState(memo.body); const save=(e:FormEvent)=>{e.preventDefault();update({...memo,title,body,preview:bodyPreview(body)});setEditing(false)}; return <div className="overlay" onMouseDown={e=>e.target===e.currentTarget&&close()}><aside className="detail-panel"><header><button className="back-button" onClick={close}>← 戻る</button><div><button className="quiet" onClick={()=>setEditing(true)}><Icon name="edit"/></button><button className="quiet danger" onClick={remove}><Icon name="trash"/></button></div></header><div className="detail-icon"><Icon name={memo.type==="task"?"check":"file"}/></div>{editing?<form onSubmit={save} className="edit-form"><input autoFocus value={title} onChange={e=>setTitle(e.target.value)}/><textarea value={body} onChange={e=>setBody(e.target.value)}/><div><button type="button" className="secondary" onClick={()=>setEditing(false)}>キャンセル</button><button className="primary">保存する</button></div></form>:<><h1>{memo.title}</h1><p className="detail-body">{memo.body}</p></>}<div className="detail-info"><div><span>作成日時</span><b>{absoluteDateTime(memo.createdAt)}</b></div><div><span>種類</span><b>{memo.type==="task"?"タスク":"メモ"}</b></div><div><span>メタ情報</span><div>{memo.tags.map(t=><span className="tag" key={t}>#{t}</span>)}</div></div></div></aside></div> }
 
-export default function App() { const [page,setPage]=useState<Page>("home"),[memos,setMemos]=useState(initialMemos),[selected,setSelected]=useState<Memo|null>(null); const toggle=(id:number)=>setMemos(m=>m.map(v=>v.id===id?{...v,done:!v.done}:v)); const create=()=>setSelected({id:Date.now(),title:"無題のメモ",body:"ここに内容を入力してください。",tags:[],time:"たった今",type:"memo"}); return <div className="app-shell"><UpdateBanner/><Sidebar page={page} setPage={setPage}/><main className="main-content">{page==="home"&&<Home memos={memos} setPage={setPage} openMemo={setSelected} toggleMemo={toggle} createMemo={create}/>} {page==="search"&&<SearchPage memos={memos} openMemo={setSelected} toggleMemo={toggle}/>} {page==="automation"&&<Automation/>} {page==="settings"&&<SettingsPage/>}</main>{selected&&<Detail memo={selected} close={()=>setSelected(null)} update={m=>{setMemos(v=>v.some(x=>x.id===m.id)?v.map(x=>x.id===m.id?m:x):[m,...v]);setSelected(m)}} remove={()=>{setMemos(v=>v.filter(x=>x.id!==selected.id));setSelected(null)}}/>}</div> }
+export default function App() { const [page,setPage]=useState<Page>("home"),[selected,setSelected]=useState<Memo|null>(null); const {memos,setMemos,status}=useRecordedMemos(); const toggle=(id:string)=>setMemos(m=>m.map(v=>v.id===id?{...v,done:!v.done}:v)); const create=()=>setSelected({id:`draft-${Date.now()}`,title:"無題のメモ",body:"ここに内容を入力してください。",preview:"",tags:[],createdAt:new Date().toISOString(),type:"memo"}); return <div className="app-shell"><UpdateBanner/><Sidebar page={page} setPage={setPage}/><main className="main-content">{page==="home"&&<Home memos={memos} status={status} setPage={setPage} openMemo={setSelected} toggleMemo={toggle} createMemo={create}/>} {page==="search"&&<SearchPage memos={memos} status={status} openMemo={setSelected} toggleMemo={toggle}/>} {page==="automation"&&<Automation/>} {page==="settings"&&<SettingsPage/>}</main>{selected&&<Detail memo={selected} close={()=>setSelected(null)} update={m=>{setMemos(v=>v.some(x=>x.id===m.id)?v.map(x=>x.id===m.id?m:x):[m,...v]);setSelected(m)}} remove={()=>{setMemos(v=>v.filter(x=>x.id!==selected.id));setSelected(null)}}/>}</div> }
