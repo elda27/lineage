@@ -12,8 +12,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod app;
-mod application;
-mod domain;
 mod infrastructure;
 mod presentation;
 
@@ -27,9 +25,10 @@ use gpui::{
 };
 use gpui_component::Root;
 
+use lineage_core::domain::settings::Settings;
+use lineage_core::infrastructure::sqlite::Database;
+
 use crate::app::Services;
-use crate::infrastructure::sqlite::Database;
-use crate::domain::settings::Settings;
 use crate::infrastructure::system::{
     ForegroundApp, SelectionCapture, SystemEvent, launcher, single_instance, tray,
     window as system_window,

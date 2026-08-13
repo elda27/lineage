@@ -119,6 +119,23 @@ lineage/
 - worker / src-tauri / src は「組み立て役(composition root)」であり、
   ここで具体的な Repository 実装を application に注入する。
 
+ローカル側の Rust クレート（lineage-core）:
+
+ローカルのデスクトップ側は Rust で書かれた3つの実行ファイルからなり、
+ドメイン・ユースケース・永続化は lineage-core クレート1本を共有する。
+
+lineage-core/           # domain / application / infrastructure（上と同じ層構成）
+minos/                  # クイック入力（gpui）。lineage-core に依存
+agentos/                # 自動化の実行（CUI・常駐しない）。lineage-core に依存
+fullos/src-tauri/       # Tauri シェル。agentos.exe を同梱して呼び出す
+
+fullos が lineage-core を直接リンクしないのは、tauri-plugin-sql(sqlx) と
+rusqlite がどちらも native の sqlite3 をリンクしていて同居できないため。
+結果として `links` への追記は minos と agentos の2か所だけになり、
+どちらも同じ lineage-core のコードを通る（4章の不変条件を保つ）。
+fullos の webview は plugin-sql で読み出しと、lineage を生まない行
+（automation_rules / settings）の書き込みだけを行う。
+
 ---
 
 3. 永続化（SQLite ⇄ D1、スキーマは1つ）

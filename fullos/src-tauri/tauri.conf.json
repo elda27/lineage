@@ -7,7 +7,7 @@
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "pnpm build && cargo build --release --manifest-path ../minos/Cargo.toml",
+    "beforeBuildCommand": "pnpm build && cargo build --release --manifest-path ../../Cargo.toml -p minos -p agentos",
     "frontendDist": "../dist"
   },
   "app": {
@@ -34,7 +34,8 @@
       "icons/icon.ico"
     ],
     "resources": {
-      "../../minos/target/release/minos.exe": "minos.exe"
+      "../../target/release/minos.exe": "minos.exe",
+      "../../target/release/agentos.exe": "agentos.exe"
     },
     "windows": {
       "wix": {

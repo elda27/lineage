@@ -8,17 +8,17 @@ use std::rc::Rc;
 
 use anyhow::Result;
 
-use crate::application::capture_memo::{CaptureMemo, CaptureMemoInput, CaptureMemoOutput};
-use crate::application::complete_meta_tag::CompleteMetaTag;
-use crate::application::settings::{LoadSettings, SaveSettings};
-use crate::application::verify_lineage::VerifyLineage;
-use crate::domain::capture::CaptureContext;
-use crate::domain::lineage::VerifyResult;
-use crate::domain::meta::{MetaAssignment, MetaSuggestion};
-use crate::domain::settings::Settings;
-use crate::infrastructure::clock::{SystemClock, UuidGenerator};
-use crate::infrastructure::crypto::Sha256Hasher;
-use crate::infrastructure::sqlite::Database;
+use lineage_core::application::capture_memo::{CaptureMemo, CaptureMemoInput, CaptureMemoOutput};
+use lineage_core::application::complete_meta_tag::CompleteMetaTag;
+use lineage_core::application::settings::{LoadSettings, SaveSettings};
+use lineage_core::application::verify_lineage::VerifyLineage;
+use lineage_core::domain::capture::CaptureContext;
+use lineage_core::domain::lineage::VerifyResult;
+use lineage_core::domain::meta::{MetaAssignment, MetaSuggestion};
+use lineage_core::domain::settings::Settings;
+use lineage_core::infrastructure::clock::{SystemClock, UuidGenerator};
+use lineage_core::infrastructure::crypto::Sha256Hasher;
+use lineage_core::infrastructure::sqlite::Database;
 
 /// minos は単一利用者なので、既定のワークスペースは1つ固定。
 /// クラウド接続に切り替えるときは、ここが利用者ごとの workspace になる。

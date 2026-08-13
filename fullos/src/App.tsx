@@ -1,7 +1,10 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { UpdateBanner } from "./updater/UpdateBanner";
+import { ActionMenu } from "./automation/ActionMenu";
+import { AutomationPage } from "./automation/AutomationPage";
+import { AutomationSettings } from "./automation/AutomationSettings";
 import { appClient } from "./app-client/appClient";
-import { accountInitial, greetingName, type Account } from "../core/domain/account/Account";
+import { accountInitial, type Account } from "../core/domain/account/Account";
 import {
   bodyPreview,
   isTask,
@@ -17,155 +20,23 @@ import {
 } from "../core/domain/meta/MetaTag";
 import { usageRatio, type StorageUsage } from "../core/domain/storage/StorageUsage";
 import { absoluteDateTime, formatBytes, longDate, relativeTime } from "./format";
-
-/* 複数箇所で使い回す見た目。Tailwind のクラス列をここに集約する。 */
-const button =
-  "inline-flex items-center justify-center gap-2 rounded-lg text-[13px] font-semibold cursor-pointer";
-const primaryLook =
-  "border border-[#39383c] bg-[#39383c] text-white shadow-[0_1px_2px_#0002] hover:bg-[#242326]";
-const primaryButton = `${button} px-4 py-2.5 ${primaryLook}`;
-const smallPrimaryButton = `${button} px-[13px] py-2 ${primaryLook}`;
-// 旧 .secondary は色指定が無く、feature-card 内では文字が白背景に白で消えていたため text-ink を明示する。
-const secondaryButton = `${button} px-4 py-2.5 border border-[#deded8] bg-white text-ink`;
-const quietButton = "grid place-items-center rounded-[7px] p-2 cursor-pointer hover:bg-[#eeeee9]";
-const tagChip =
-  "inline-flex rounded-[5px] bg-[#f1f0ed] px-[7px] py-0.5 text-[9px] font-medium text-[#6e706a]";
-const eyebrow = "mb-3.5 text-[11px] font-semibold uppercase tracking-[0.13em] text-[#96978f]";
-const cardSurface = "overflow-hidden rounded-[11px] border border-line bg-white";
-const subheading = "mb-[5px] text-[15px] font-bold";
-const serifTitle = "font-serif font-normal tracking-[-0.025em]";
-/** 1050px 以下では左右の余白を詰める（旧 @media(max-width:1050px) 相当）。 */
-const heroPadding = "px-[5vw] min-[1051px]:px-[8vw]";
-const pagePadding = "px-[45px] min-[1051px]:px-[clamp(50px,8vw,110px)]";
-const standardPage = `min-h-screen mx-auto max-w-[1180px] py-16 ${pagePadding}`;
-const toggleTrack = "h-5 w-9 rounded-xl border-0 p-0.5 cursor-pointer";
-const toggleKnob =
-  "block h-4 w-4 rounded-full bg-white shadow-[0_1px_2px_#0003] transition duration-200";
-
-type IconName =
-  | "home"
-  | "search"
-  | "sparkles"
-  | "settings"
-  | "plus"
-  | "clock"
-  | "check"
-  | "file"
-  | "arrow"
-  | "more"
-  | "tag"
-  | "trash"
-  | "edit"
-  | "command"
-  | "inbox"
-  | "chevron"
-  | "play"
-  | "moon";
-
-function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
-  const paths: Record<IconName, React.ReactNode> = {
-    home: (
-      <>
-        <path d="m3 11 9-8 9 8" />
-        <path d="M5 10v10h14V10M9 20v-6h6v6" />
-      </>
-    ),
-    search: (
-      <>
-        <circle cx="11" cy="11" r="7" />
-        <path d="m20 20-4-4" />
-      </>
-    ),
-    sparkles: (
-      <>
-        <path d="m12 3 1.2 3.8L17 8l-3.8 1.2L12 13l-1.2-3.8L7 8l3.8-1.2L12 3Z" />
-        <path d="m5 14 .8 2.2L8 17l-2.2.8L5 20l-.8-2.2L2 17l2.2-.8L5 14ZM19 13l.6 1.4L21 15l-1.4.6L19 17l-.6-1.4L17 15l1.4-.6L19 13Z" />
-      </>
-    ),
-    settings: (
-      <>
-        <circle cx="12" cy="12" r="3" />
-        <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3A1.7 1.7 0 0 0 10 3v-.2h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z" />
-      </>
-    ),
-    plus: <path d="M12 5v14M5 12h14" />,
-    clock: (
-      <>
-        <circle cx="12" cy="12" r="9" />
-        <path d="M12 7v5l3 2" />
-      </>
-    ),
-    check: <path d="m5 12 4 4L19 6" />,
-    file: (
-      <>
-        <path d="M6 3h8l4 4v14H6z" />
-        <path d="M14 3v5h5M9 13h6M9 17h5" />
-      </>
-    ),
-    arrow: (
-      <>
-        <path d="M5 12h14M14 7l5 5-5 5" />
-      </>
-    ),
-    more: (
-      <>
-        <circle cx="5" cy="12" r="1" fill="currentColor" />
-        <circle cx="12" cy="12" r="1" fill="currentColor" />
-        <circle cx="19" cy="12" r="1" fill="currentColor" />
-      </>
-    ),
-    tag: (
-      <>
-        <path d="M20 13 13 20 4 11V4h7z" />
-        <circle cx="8.5" cy="8.5" r="1" />
-      </>
-    ),
-    trash: (
-      <>
-        <path d="M4 7h16M9 7V4h6v3M7 7l1 14h8l1-14M10 11v6M14 11v6" />
-      </>
-    ),
-    edit: (
-      <>
-        <path d="m14 5 5 5L9 20H4v-5zM12 7l5 5" />
-      </>
-    ),
-    command: (
-      <>
-        <rect x="4" y="4" width="6" height="6" rx="3" />
-        <rect x="14" y="4" width="6" height="6" rx="3" />
-        <rect x="4" y="14" width="6" height="6" rx="3" />
-        <rect x="14" y="14" width="6" height="6" rx="3" />
-        <path d="M10 7v10c0 4 4 4 4 0V7" />
-      </>
-    ),
-    inbox: (
-      <>
-        <path d="M4 5h16v14H4z" />
-        <path d="M4 14h5l2 2h2l2-2h5" />
-      </>
-    ),
-    chevron: <path d="m9 7 5 5-5 5" />,
-    play: <path d="m9 6 9 6-9 6z" />,
-    moon: <path d="M20 15.5A8 8 0 0 1 8.5 4 8.5 8.5 0 1 0 20 15.5Z" />,
-  };
-  return (
-    <svg
-      className="flex-none"
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      {paths[name]}
-    </svg>
-  );
-}
+import {
+  cardSurface,
+  eyebrow,
+  heroPadding,
+  Icon,
+  primaryButton,
+  quietButton,
+  secondaryButton,
+  serifTitle,
+  SettingRow,
+  smallPrimaryButton,
+  standardPage,
+  subheading,
+  tagChip,
+  Toggle,
+  type IconName,
+} from "./ui";
 
 type Page = "home" | "search" | "automation" | "settings";
 
@@ -613,6 +484,12 @@ function MemoCard({
           </span>
         </div>
       </div>
+      {/* 下書き（まだ保存していない記録）には自動化を当てられない。 */}
+      {!memo.id.startsWith("draft-") && (
+        <div className="self-center opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100">
+          <ActionMenu memoId={memo.id} />
+        </div>
+      )}
       <button
         className="self-center border-0 bg-transparent text-[#b0b1ab] opacity-0 group-hover:opacity-100"
         aria-label="詳細を開く"
@@ -690,7 +567,7 @@ function Home({
   openMemo,
   toggleMemo,
   createMemo,
-  account,
+  enabledRuleCount,
 }: {
   memos: Memo[];
   status: LoadState;
@@ -700,7 +577,7 @@ function Home({
   openMemo: (m: Memo) => void;
   toggleMemo: (id: string) => void;
   createMemo: () => void;
-  account: Account | null;
+  enabledRuleCount: number;
 }) {
   const quickCard =
     "flex cursor-pointer items-center gap-3 rounded-[10px] border border-line bg-white p-[15px] text-left hover:-translate-y-px hover:border-[#cfcec7]";
@@ -770,7 +647,9 @@ function Home({
             </span>
             <span className="flex flex-1 flex-col">
               <b className="text-[12px]">自動化ルール</b>
-              <small className="mt-[3px] text-[9px] text-[#969791]">2 件が有効</small>
+              <small className="mt-[3px] text-[9px] text-[#969791]">
+                {enabledRuleCount} 件が有効
+              </small>
             </span>
             <Icon name="arrow" />
           </button>
@@ -847,79 +726,6 @@ function SearchPage({
           hint: "キーワードや絞り込みを変えてみてください。",
         }}
       />
-    </div>
-  );
-}
-
-function Automation() {
-  const [rules, setRules] = useState([
-    {
-      name: "タスクを自動でまとめる",
-      desc: "#タスク が付いた記録を今日のタスクリストへ追加",
-      on: true,
-    },
-    { name: "アイデアを週報へ整理", desc: "毎週金曜日に #アイデア の記録を要約", on: true },
-    { name: "読書メモをアーカイブ", desc: "読み終えた本のメモを月末にアーカイブ", on: false },
-  ]);
-  return (
-    <div className={standardPage}>
-      <div className="mb-8 flex items-end justify-between">
-        <div>
-          <p className={eyebrow}>WORKFLOWS</p>
-          <h1 className={`${serifTitle} mb-[9px] text-[34px]`}>自動化</h1>
-          <p className="text-[13px] text-muted">記録に基づくルールで、いつもの作業を軽くします。</p>
-        </div>
-        <button className={primaryButton}>
-          <Icon name="plus" />
-          新しいルール
-        </button>
-      </div>
-      <div className="mb-[35px] flex items-center gap-5 rounded-[14px] bg-[#37353c] px-7 py-[27px] text-white shadow-[0_8px_30px_#34303916]">
-        <span className="grid h-12 w-12 place-items-center rounded-xl bg-[#ffffff12] text-[#c8c0f1]">
-          <Icon name="sparkles" size={26} />
-        </span>
-        <div className="flex-1">
-          <small className="text-[9px] tracking-[0.15em] text-[#a9a4bd]">LINEAGE AGENT</small>
-          <h2 className="my-1 font-serif text-[21px] font-normal">記録から、次のアクションへ。</h2>
-          <p className="text-[11px] text-[#bbb9c0]">
-            メモに含まれる文脈やメタ情報を読み取り、あなたに代わって整理・実行します。
-          </p>
-        </div>
-        <button className={secondaryButton}>
-          <Icon name="play" size={15} />
-          Agentを試す
-        </button>
-      </div>
-      <h2 className={subheading}>自動化ルール</h2>
-      <div className={cardSurface}>
-        {rules.map((rule, i) => (
-          <article
-            className="flex items-center gap-[15px] border-b border-line p-[18px] last:border-b-0"
-            key={rule.name}
-          >
-            <span className="grid h-[37px] w-[37px] place-items-center rounded-[9px] bg-[#f0eef8] text-[#7164b2]">
-              <Icon name="command" />
-            </span>
-            <div className="flex-1">
-              <h3 className="text-[12px] font-bold">{rule.name}</h3>
-              <p className="my-1 text-[10px] text-[#81837c]">{rule.desc}</p>
-              <small className="text-[9px] text-[#a3a49e]">
-                {rule.on ? "有効・最終実行 2時間前" : "停止中"}
-              </small>
-            </div>
-            <button
-              aria-label={`${rule.name}を切り替え`}
-              className={`${toggleTrack} ${rule.on ? "bg-[#7063b6]" : "bg-[#d8d8d2]"}`}
-              onClick={() => setRules((r) => r.map((v, n) => (n === i ? { ...v, on: !v.on } : v)))}
-            >
-              <i className={`${toggleKnob} ${rule.on ? "translate-x-4" : ""}`} />
-            </button>
-            <button className={quietButton}>
-              <Icon name="more" />
-            </button>
-          </article>
-        ))}
-      </div>
     </div>
   );
 }
@@ -1001,41 +807,10 @@ function SettingsPage() {
           ))}
         </div>
       </section>
+      <AutomationSettings />
     </div>
   );
 }
-function SettingRow({
-  title,
-  desc,
-  children,
-}: {
-  title: string;
-  desc: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex min-h-[69px] items-center border-b border-line px-[18px] py-[15px] last:border-b-0">
-      <div className="flex flex-1 flex-col gap-[3px]">
-        <b className="text-[12px]">{title}</b>
-        <small className="text-[9px] text-[#8f918a]">{desc}</small>
-      </div>
-      {children}
-    </div>
-  );
-}
-function Toggle({ value, setValue }: { value: boolean; setValue: (v: boolean) => void }) {
-  return (
-    <button
-      role="switch"
-      aria-checked={value}
-      className={`${toggleTrack} ${value ? "bg-[#7063b6]" : "bg-[#d8d8d2]"}`}
-      onClick={() => setValue(!value)}
-    >
-      <i className={`${toggleKnob} ${value ? "translate-x-4" : ""}`} />
-    </button>
-  );
-}
-
 function Detail({
   memo,
   close,
@@ -1125,10 +900,41 @@ function Detail({
               <MetaChips metas={memo.metas} />
             </div>
           </div>
+          {!memo.id.startsWith("draft-") && (
+            <div>
+              <span>自動化</span>
+              <div className="flex">
+                <ActionMenu memoId={memo.id} />
+              </div>
+            </div>
+          )}
         </div>
       </aside>
     </div>
   );
+}
+
+/**
+ * 有効な自動化ルールの件数。ホームのカードに出すだけなので、
+ * 読めなくても 0 として黙って続ける（一覧の表示を妨げない）。
+ */
+function useEnabledRuleCount() {
+  const [count, setCount] = useState(0);
+
+  useEffect(() => {
+    let active = true;
+    appClient()
+      .then((client) => client.listAutomationRules())
+      .then((rules) => {
+        if (active) setCount(rules.filter((rule) => rule.enabled).length);
+      })
+      .catch((error) => console.error("自動化ルールを数えられませんでした", error));
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  return count;
 }
 
 export default function App() {
@@ -1136,6 +942,7 @@ export default function App() {
     [selected, setSelected] = useState<Memo | null>(null);
   const [query, setQuery] = useState("");
   const { memos, setMemos, status } = useRecordedMemos();
+  const enabledRuleCount = useEnabledRuleCount();
   // アカウントはサイドバーとホームの両方が使うのでここで1回だけ読む。
   const account = useAccount();
   const toggle = (id: string) =>
@@ -1165,7 +972,7 @@ export default function App() {
             openMemo={setSelected}
             toggleMemo={toggle}
             createMemo={create}
-            account={account}
+            enabledRuleCount={enabledRuleCount}
           />
         )}{" "}
         {page === "search" && (
@@ -1178,7 +985,7 @@ export default function App() {
             toggleMemo={toggle}
           />
         )}{" "}
-        {page === "automation" && <Automation />} {page === "settings" && <SettingsPage />}
+        {page === "automation" && <AutomationPage />} {page === "settings" && <SettingsPage />}
       </main>
       {selected && (
         <Detail

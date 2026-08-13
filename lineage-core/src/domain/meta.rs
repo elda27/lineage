@@ -7,8 +7,11 @@
 //! - 短縮文字列(shorthand)を定義すると、その先頭一致でも候補に出る
 //!   （`#タスク` に `task` を設定 → `#t` で候補、`#ta` でさらに絞り込み）
 
+use serde::{Deserialize, Serialize};
+
 /// メタ情報がどこから来たか。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum MetaSource {
     /// minos が自動的に付けた（直前のアプリ情報など）。
     Auto,
@@ -23,10 +26,21 @@ impl MetaSource {
             MetaSource::User => "user",
         }
     }
+
+    /// DB に保存された文字列から復元する。
+    ///
+    /// 未知の値は「ユーザ入力」として扱う。自動付与とみなすと、後から自動値で
+    /// 上書きされうるため、判断がつかないときは消えにくい側に倒す。
+    pub fn parse(value: &str) -> Self {
+        match value {
+            "auto" => MetaSource::Auto,
+            _ => MetaSource::User,
+        }
+    }
 }
 
 /// 1件の記録に付与されたメタ情報。
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MetaAssignment {
     pub label: String,
     pub value: Option<String>,

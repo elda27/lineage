@@ -24,6 +24,13 @@ tauri-plugin-opener = "2"
 tauri-plugin-sql = { version = "2", features = ["sqlite"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# ブラウザ方式で回収した応答をウィンドウタイトル経由で運ぶときの符号化（src/browser.rs）。
+base64 = "0.22"
+
+# 自動化の実行は同梱の agentos.exe に任せる（src/automation.rs）。
+# lineage-core を直接リンクしないのは、rusqlite と tauri-plugin-sql(sqlx) が
+# どちらも native の sqlite3 をリンクしていて衝突するため。1プロセスに sqlite の
+# スタックを2つ抱えるのも避けたいので、実行エンジンは別プロセスに分けている。
 
 # 自動更新はデスクトップのみ。updater が再起動に process プラグインを使う。
 [target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]

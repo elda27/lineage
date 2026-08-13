@@ -9,11 +9,16 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use rusqlite::{Connection, OptionalExtension, Row, params};
 
-use crate::domain::capture::DocumentAsset;
+use crate::domain::automation::{
+    AutomationRule, AutomationRun, BackendConfig, BackendKind, MemoSnapshot, RunStatus, Trigger,
+    TriggerKind,
+};
+use crate::domain::capture::{DOCUMENT_TYPE_MEMO, DocumentAsset};
 use crate::domain::lineage::LineageRecord;
-use crate::domain::meta::{MetaAssignment, MetaTag};
+use crate::domain::meta::{MetaAssignment, MetaSource, MetaTag};
 use crate::domain::ports::{
-    CaptureStore, CaptureTx, LineageQuery, MetaTagQuery, SettingsRepository,
+    AutomationRuleQuery, AutomationRunStore, AutomationStore, AutomationTx, CaptureStore, CaptureTx,
+    LedgerTx, LineageQuery, MemoQuery, MetaTagQuery, SettingsRepository,
 };
 
 /// ローカルとクラウドで共通のスキーマ。
@@ -53,7 +58,7 @@ impl Database {
         Self::from_connection(conn)
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn open_in_memory() -> Result<Self> {
         Self::from_connection(Connection::open_in_memory()?)
     }
@@ -89,18 +94,15 @@ struct SqliteCaptureTx<'a> {
     tx: &'a rusqlite::Transaction<'a>,
 }
 
-impl CaptureTx for SqliteCaptureTx<'_> {
-    fn ensure_workspace(&mut self, id: &str, name: &str, now: &str) -> Result<()> {
-        self.tx.execute(
-            "INSERT OR IGNORE INTO workspaces (id, name, owner_user_id, created_at)
-             VALUES (?1, ?2, NULL, ?3)",
-            params![id, name, now],
-        )?;
-        Ok(())
-    }
+/// document と link の SQL。記録の取り込みと自動化の結果保存で同じものを使う。
+///
+/// hash-chain の書き込みが2か所に分かれると、片方だけ直したときに鎖の作り方が
+/// ずれる。SQL は1本に保ち、トランザクションの型だけを分ける。
+mod ledger_sql {
+    use super::*;
 
-    fn insert_document(&mut self, document: &DocumentAsset) -> Result<()> {
-        self.tx.execute(
+    pub fn insert_document(tx: &rusqlite::Transaction<'_>, document: &DocumentAsset) -> Result<()> {
+        tx.execute(
             "INSERT INTO documents
                  (id, workspace_id, title, body_text, blob_uri, document_type, created_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, NULL, ?5, ?6, ?7)",
@@ -113,6 +115,71 @@ impl CaptureTx for SqliteCaptureTx<'_> {
                 document.created_at,
                 document.updated_at,
             ],
+        )?;
+        Ok(())
+    }
+
+    pub fn last_link(
+        tx: &rusqlite::Transaction<'_>,
+        workspace_id: &str,
+    ) -> Result<Option<LineageRecord>> {
+        let record = tx
+            .query_row(
+                "SELECT id, workspace_id, seq, source_kind, source_id, target_kind, target_id,
+                        relation_type, actor, created_at, content_hash, prev_hash
+                 FROM links WHERE workspace_id = ?1 ORDER BY seq DESC LIMIT 1",
+                params![workspace_id],
+                row_to_lineage_record,
+            )
+            .optional()?;
+        Ok(record)
+    }
+
+    pub fn append_link(tx: &rusqlite::Transaction<'_>, link: &LineageRecord) -> Result<()> {
+        tx.execute(
+            "INSERT INTO links
+                 (id, workspace_id, seq, source_kind, source_id, target_kind, target_id,
+                  relation_type, actor, created_at, content_hash, prev_hash)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            params![
+                link.id,
+                link.workspace_id,
+                link.seq,
+                link.source_kind,
+                link.source_id,
+                link.target_kind,
+                link.target_id,
+                link.relation_type,
+                link.actor,
+                link.created_at,
+                link.content_hash,
+                link.prev_hash,
+            ],
+        )?;
+        Ok(())
+    }
+}
+
+impl LedgerTx for SqliteCaptureTx<'_> {
+    fn insert_document(&mut self, document: &DocumentAsset) -> Result<()> {
+        ledger_sql::insert_document(self.tx, document)
+    }
+
+    fn last_link(&mut self, workspace_id: &str) -> Result<Option<LineageRecord>> {
+        ledger_sql::last_link(self.tx, workspace_id)
+    }
+
+    fn append_link(&mut self, link: &LineageRecord) -> Result<()> {
+        ledger_sql::append_link(self.tx, link)
+    }
+}
+
+impl CaptureTx for SqliteCaptureTx<'_> {
+    fn ensure_workspace(&mut self, id: &str, name: &str, now: &str) -> Result<()> {
+        self.tx.execute(
+            "INSERT OR IGNORE INTO workspaces (id, name, owner_user_id, created_at)
+             VALUES (?1, ?2, NULL, ?3)",
+            params![id, name, now],
         )?;
         Ok(())
     }
@@ -148,44 +215,6 @@ impl CaptureTx for SqliteCaptureTx<'_> {
              ON CONFLICT(workspace_id, label)
              DO UPDATE SET usage_count = usage_count + 1, last_used_at = excluded.last_used_at",
             params![id, workspace_id, label, now],
-        )?;
-        Ok(())
-    }
-
-    fn last_link(&mut self, workspace_id: &str) -> Result<Option<LineageRecord>> {
-        let record = self
-            .tx
-            .query_row(
-                "SELECT id, workspace_id, seq, source_kind, source_id, target_kind, target_id,
-                        relation_type, actor, created_at, content_hash, prev_hash
-                 FROM links WHERE workspace_id = ?1 ORDER BY seq DESC LIMIT 1",
-                params![workspace_id],
-                row_to_lineage_record,
-            )
-            .optional()?;
-        Ok(record)
-    }
-
-    fn append_link(&mut self, link: &LineageRecord) -> Result<()> {
-        self.tx.execute(
-            "INSERT INTO links
-                 (id, workspace_id, seq, source_kind, source_id, target_kind, target_id,
-                  relation_type, actor, created_at, content_hash, prev_hash)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
-            params![
-                link.id,
-                link.workspace_id,
-                link.seq,
-                link.source_kind,
-                link.source_id,
-                link.target_kind,
-                link.target_id,
-                link.relation_type,
-                link.actor,
-                link.created_at,
-                link.content_hash,
-                link.prev_hash,
-            ],
         )?;
         Ok(())
     }
@@ -254,6 +283,306 @@ impl SettingsRepository for Database {
     }
 }
 
+impl AutomationStore for Database {
+    fn transact(&self, work: &mut dyn FnMut(&mut dyn AutomationTx) -> Result<()>) -> Result<()> {
+        let mut conn = self.conn.borrow_mut();
+        let tx = conn.transaction()?;
+        {
+            let mut automation_tx = SqliteAutomationTx { tx: &tx };
+            work(&mut automation_tx)?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+}
+
+struct SqliteAutomationTx<'a> {
+    tx: &'a rusqlite::Transaction<'a>,
+}
+
+impl LedgerTx for SqliteAutomationTx<'_> {
+    fn insert_document(&mut self, document: &DocumentAsset) -> Result<()> {
+        ledger_sql::insert_document(self.tx, document)
+    }
+
+    fn last_link(&mut self, workspace_id: &str) -> Result<Option<LineageRecord>> {
+        ledger_sql::last_link(self.tx, workspace_id)
+    }
+
+    fn append_link(&mut self, link: &LineageRecord) -> Result<()> {
+        ledger_sql::append_link(self.tx, link)
+    }
+}
+
+impl AutomationTx for SqliteAutomationTx<'_> {
+    fn finish_run(&mut self, run: &AutomationRun) -> Result<()> {
+        self.tx.execute(
+            "UPDATE automation_runs
+                SET status = ?2, result_document_id = ?3, error = ?4, finished_at = ?5
+              WHERE id = ?1",
+            params![
+                run.id,
+                run.status.as_str(),
+                run.result_document_id,
+                run.error,
+                run.finished_at,
+            ],
+        )?;
+        Ok(())
+    }
+}
+
+impl AutomationRuleQuery for Database {
+    fn all(&self, workspace_id: &str) -> Result<Vec<AutomationRule>> {
+        let conn = self.conn.borrow();
+        let mut statement = conn.prepare(
+            "SELECT id, workspace_id, name, description, prompt, backend_kind, backend_config,
+                    trigger_kind, trigger_config, enabled, created_at, updated_at
+             FROM automation_rules WHERE workspace_id = ?1 ORDER BY created_at ASC",
+        )?;
+        let rows = statement
+            .query_map(params![workspace_id], row_to_rule)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        rows.into_iter().collect()
+    }
+
+    fn get(&self, id: &str) -> Result<Option<AutomationRule>> {
+        let conn = self.conn.borrow();
+        let row = conn
+            .query_row(
+                "SELECT id, workspace_id, name, description, prompt, backend_kind, backend_config,
+                        trigger_kind, trigger_config, enabled, created_at, updated_at
+                 FROM automation_rules WHERE id = ?1",
+                params![id],
+                row_to_rule,
+            )
+            .optional()?;
+        row.transpose()
+    }
+}
+
+impl AutomationRunStore for Database {
+    fn start(&self, run: &AutomationRun) -> Result<()> {
+        let conn = self.conn.borrow();
+        conn.execute(
+            "INSERT INTO automation_runs
+                 (id, workspace_id, rule_id, source_document_id, result_document_id,
+                  status, backend_kind, error, started_at, finished_at)
+             VALUES (?1, ?2, ?3, ?4, NULL, ?5, ?6, NULL, ?7, NULL)",
+            params![
+                run.id,
+                run.workspace_id,
+                run.rule_id,
+                run.source_document_id,
+                run.status.as_str(),
+                run.backend.as_str(),
+                run.started_at,
+            ],
+        )?;
+        Ok(())
+    }
+
+    fn recent(&self, workspace_id: &str, limit: usize) -> Result<Vec<AutomationRun>> {
+        let conn = self.conn.borrow();
+        let mut statement = conn.prepare(
+            "SELECT id, workspace_id, rule_id, source_document_id, result_document_id,
+                    status, backend_kind, error, started_at, finished_at
+             FROM automation_runs WHERE workspace_id = ?1
+             ORDER BY started_at DESC LIMIT ?2",
+        )?;
+        let rows = statement
+            .query_map(params![workspace_id, limit as i64], row_to_run)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        rows.into_iter().collect()
+    }
+
+    fn unprocessed_memos(
+        &self,
+        workspace_id: &str,
+        rule_id: &str,
+        scan_limit: usize,
+    ) -> Result<Vec<MemoSnapshot>> {
+        let conn = self.conn.borrow();
+        // 「成功済み or 実行中」の run があるものを除く。失敗した記録は残るので、
+        // 鍵の未登録や通信断のような一時的な失敗は次の poll で自然に再試行される。
+        let mut statement = conn.prepare(
+            "SELECT id, title, body_text, created_at
+             FROM documents d
+             WHERE d.workspace_id = ?1
+               AND d.document_type = ?2
+               AND NOT EXISTS (
+                     SELECT 1 FROM automation_runs r
+                     WHERE r.rule_id = ?3
+                       AND r.source_document_id = d.id
+                       AND r.status IN ('running', 'succeeded')
+                   )
+             ORDER BY d.created_at DESC LIMIT ?4",
+        )?;
+        let bases = statement
+            .query_map(
+                params![workspace_id, DOCUMENT_TYPE_MEMO, rule_id, scan_limit as i64],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                        row.get::<_, String>(3)?,
+                    ))
+                },
+            )?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+
+        drop(statement);
+        bases
+            .into_iter()
+            .map(|(id, title, body_text, created_at)| {
+                Ok(MemoSnapshot {
+                    metas: metas_of(&conn, &id)?,
+                    id,
+                    title,
+                    body_text: body_text.unwrap_or_default(),
+                    created_at,
+                })
+            })
+            .collect()
+    }
+
+    fn last_started_at(&self, rule_id: &str) -> Result<Option<String>> {
+        let conn = self.conn.borrow();
+        let started_at = conn
+            .query_row(
+                "SELECT max(started_at) FROM automation_runs WHERE rule_id = ?1",
+                params![rule_id],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .optional()?
+            .flatten();
+        Ok(started_at)
+    }
+}
+
+impl MemoQuery for Database {
+    fn get(&self, workspace_id: &str, document_id: &str) -> Result<Option<MemoSnapshot>> {
+        let conn = self.conn.borrow();
+        let base = conn
+            .query_row(
+                "SELECT id, title, body_text, created_at FROM documents
+                 WHERE workspace_id = ?1 AND id = ?2 AND document_type = ?3",
+                params![workspace_id, document_id, DOCUMENT_TYPE_MEMO],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                        row.get::<_, String>(3)?,
+                    ))
+                },
+            )
+            .optional()?;
+
+        let Some((id, title, body_text, created_at)) = base else {
+            return Ok(None);
+        };
+        Ok(Some(MemoSnapshot {
+            metas: metas_of(&conn, &id)?,
+            id,
+            title,
+            body_text: body_text.unwrap_or_default(),
+            created_at,
+        }))
+    }
+}
+
+/// 記録に付いたメタ情報を読み出す。
+fn metas_of(conn: &Connection, document_id: &str) -> Result<Vec<MetaAssignment>> {
+    let mut statement = conn.prepare(
+        "SELECT label, value, source FROM document_meta WHERE document_id = ?1 ORDER BY label",
+    )?;
+    let metas = statement
+        .query_map(params![document_id], |row| {
+            Ok(MetaAssignment {
+                label: row.get(0)?,
+                value: row.get(1)?,
+                source: MetaSource::parse(&row.get::<_, String>(2)?),
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(metas)
+}
+
+/// `backend_kind` / `trigger_kind` / JSON 列をドメインの型へ戻す。
+///
+/// 行の読み出し自体は成功したが中身が壊れている（未知の種別・壊れた JSON）ことが
+/// ありうるので、`rusqlite::Result<Result<_>>` の二段で返して呼び出し側で潰す。
+fn row_to_rule(row: &Row<'_>) -> rusqlite::Result<Result<AutomationRule>> {
+    let id: String = row.get(0)?;
+    let backend_kind: String = row.get(5)?;
+    let backend_config: String = row.get(6)?;
+    let trigger_kind: String = row.get(7)?;
+    let trigger_config: String = row.get(8)?;
+
+    Ok((|| {
+        let backend = BackendKind::parse(&backend_kind)
+            .with_context(|| format!("ルール {id} の backend_kind が不正です: {backend_kind}"))?;
+        let trigger_kind_parsed = TriggerKind::parse(&trigger_kind)
+            .with_context(|| format!("ルール {id} の trigger_kind が不正です: {trigger_kind}"))?;
+        let config: BackendConfig = serde_json::from_str(&backend_config)
+            .with_context(|| format!("ルール {id} の backend_config を解釈できません"))?;
+        let trigger: Trigger = serde_json::from_str(&trigger_config)
+            .with_context(|| format!("ルール {id} の trigger_config を解釈できません"))?;
+
+        Ok(AutomationRule {
+            id: id.clone(),
+            workspace_id: row_string(row, 1),
+            name: row_string(row, 2),
+            description: row_opt_string(row, 3),
+            prompt: row_string(row, 4),
+            backend,
+            backend_config: config,
+            trigger_kind: trigger_kind_parsed,
+            trigger,
+            enabled: row.get::<_, i64>(9).unwrap_or(1) != 0,
+            created_at: row_string(row, 10),
+            updated_at: row_string(row, 11),
+        })
+    })())
+}
+
+fn row_to_run(row: &Row<'_>) -> rusqlite::Result<Result<AutomationRun>> {
+    let id: String = row.get(0)?;
+    let status: String = row.get(5)?;
+    let backend_kind: String = row.get(6)?;
+
+    Ok((|| {
+        let status = RunStatus::parse(&status)
+            .with_context(|| format!("実行 {id} の status が不正です: {status}"))?;
+        let backend = BackendKind::parse(&backend_kind)
+            .with_context(|| format!("実行 {id} の backend_kind が不正です: {backend_kind}"))?;
+
+        Ok(AutomationRun {
+            id: id.clone(),
+            workspace_id: row_string(row, 1),
+            rule_id: row_string(row, 2),
+            source_document_id: row_string(row, 3),
+            result_document_id: row_opt_string(row, 4),
+            status,
+            backend,
+            error: row_opt_string(row, 7),
+            started_at: row_string(row, 8),
+            finished_at: row_opt_string(row, 9),
+        })
+    })())
+}
+
+/// 列は上の SELECT で必ず取れるので、取り出せない事態は起こらない。
+fn row_string(row: &Row<'_>, index: usize) -> String {
+    row.get(index).unwrap_or_default()
+}
+
+fn row_opt_string(row: &Row<'_>, index: usize) -> Option<String> {
+    row.get(index).unwrap_or_default()
+}
+
 fn row_to_lineage_record(row: &Row<'_>) -> rusqlite::Result<LineageRecord> {
     Ok(LineageRecord {
         id: row.get(0)?,
@@ -271,8 +600,13 @@ fn row_to_lineage_record(row: &Row<'_>) -> rusqlite::Result<LineageRecord> {
     })
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 impl Database {
+    /// 生の接続を貸す。テストで前提データを直接書き込むためだけに使う。
+    pub fn connection_for_test(&self) -> std::cell::Ref<'_, Connection> {
+        self.conn.borrow()
+    }
+
     /// `(label, value, source)` を返す（テスト用）。
     pub fn metas_of_document(
         &self,
@@ -350,7 +684,7 @@ mod tests {
         let hasher = Sha256Hasher;
         let ledger = LineageLedger::new(&hasher);
 
-        db.transact(&mut |tx| {
+        CaptureStore::transact(&db, &mut |tx: &mut dyn CaptureTx| {
             tx.ensure_workspace("ws", "minos", "2026-08-08T00:00:00Z")?;
             let first = link(&ledger, None, "a");
             tx.append_link(&first)?;
@@ -373,7 +707,7 @@ mod tests {
         let hasher = Sha256Hasher;
         let ledger = LineageLedger::new(&hasher);
 
-        let result = db.transact(&mut |tx| {
+        let result = CaptureStore::transact(&db, &mut |tx: &mut dyn CaptureTx| {
             tx.ensure_workspace("ws", "minos", "2026-08-08T00:00:00Z")?;
             tx.append_link(&link(&ledger, None, "a"))?;
             anyhow::bail!("途中で失敗");
@@ -389,7 +723,7 @@ mod tests {
         let hasher = Sha256Hasher;
         let ledger = LineageLedger::new(&hasher);
 
-        let result = db.transact(&mut |tx| {
+        let result = CaptureStore::transact(&db, &mut |tx: &mut dyn CaptureTx| {
             let first = link(&ledger, None, "a");
             tx.append_link(&first)?;
             // 同じ seq をもう一度追記しようとする（＝鎖の分岐）。

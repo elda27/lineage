@@ -62,6 +62,8 @@ setJsonVersion("fullos/package.json");
 setJsonVersion("fullos/src-tauri/tauri.conf.json");
 setCargoVersion("fullos/src-tauri/Cargo.toml");
 setCargoVersion("minos/Cargo.toml");
+setCargoVersion("agentos/Cargo.toml");
+setCargoVersion("lineage-core/Cargo.toml");
 
 if (changes.length) {
   console.error(`version ${version} is not synchronized: ${changes.join(", ")}`);

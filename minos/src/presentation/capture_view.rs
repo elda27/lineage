@@ -9,6 +9,7 @@
 //!   本文が空のときの Backspace で末尾から外せる
 //! - 直前のアプリ情報は自動メタ情報として付き、そのアプリの選択テキストも取り込める
 //!   （自動で取り込むかはトレイメニューの設定で切り替える）
+//! - fullos をここから起動できる（トレイメニューの「fullos を起動」と同じ）
 
 use std::rc::Rc;
 use std::time::Duration;
@@ -22,10 +23,10 @@ use gpui_component::input::{Backspace, Escape, Input, InputEvent, InputState};
 use gpui_component::{ActiveTheme, Sizable, StyledExt, h_flex, v_flex};
 
 use crate::app::Services;
-use crate::domain::capture::CaptureContext;
-use crate::domain::meta::{MetaAssignment, MetaSource, auto_label, split_completed_tags};
+use lineage_core::domain::capture::CaptureContext;
+use lineage_core::domain::meta::{MetaAssignment, MetaSource, auto_label, split_completed_tags};
 use crate::infrastructure::system::foreground;
-use crate::infrastructure::system::{ForegroundApp, SelectionCapture};
+use crate::infrastructure::system::{ForegroundApp, SelectionCapture, launcher};
 use crate::presentation::meta_completion::MetaCompletionProvider;
 use crate::presentation::window_control::AppWindow;
 
@@ -160,7 +161,7 @@ impl CaptureView {
 
     /// 検証結果を画面に出す（トレイメニューから呼ばれる）。
     pub fn show_verification(&mut self, cx: &mut Context<Self>) {
-        use crate::domain::lineage::VerifyResult;
+        use lineage_core::domain::lineage::VerifyResult;
 
         self.status = Some(match self.services.verify_lineage() {
             Ok(VerifyResult::Ok { checked }) => {
@@ -171,6 +172,26 @@ impl CaptureView {
             ),
             Err(error) => Status::Error(format!("検証に失敗しました: {error}").into()),
         });
+        cx.notify();
+    }
+
+    /// fullos を起動する。
+    ///
+    /// 起動できれば fullos が前面に出るので、minos はタスクトレイに戻る。
+    /// 入力中の本文とバッジはそのまま残し、次の Alt+Space で続きを書けるようにする。
+    fn launch_fullos(&mut self, cx: &mut Context<Self>) {
+        match launcher::launch_fullos() {
+            Ok(path) => {
+                log::info!("fullos を起動しました: {}", path.display());
+                self.status = None;
+                self.app_window.hide();
+            }
+            Err(error) => {
+                log::warn!("fullos を起動できません: {error:#}");
+                self.status =
+                    Some(Status::Error(format!("fullos を起動できません: {error}").into()));
+            }
+        }
         cx.notify();
     }
 
@@ -456,6 +477,15 @@ impl Render for CaptureView {
                                         })),
                                 )
                             })
+                            .child(
+                                Button::new("launch-fullos")
+                                    .ghost()
+                                    .xsmall()
+                                    .label("fullos を開く")
+                                    .on_click(
+                                        cx.listener(|this, _, _window, cx| this.launch_fullos(cx)),
+                                    ),
+                            )
                             .child(Button::new("submit").primary().label("送信").on_click(
                                 cx.listener(|this, _, window, cx| this.submit(window, cx)),
                             )),

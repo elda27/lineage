@@ -15,7 +15,7 @@ use lsp_types::{
 };
 
 use crate::app::Services;
-use crate::domain::meta::{MatchKind, find_active_tag_token};
+use lineage_core::domain::meta::{MatchKind, find_active_tag_token};
 
 /// 一度に出す候補の上限。
 const MAX_SUGGESTIONS: usize = 12;

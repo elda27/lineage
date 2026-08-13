@@ -1,0 +1,15 @@
+[package]
+name = "agentos"
+version = "0.0.5"
+edition = "2024"
+description = "Lineage の自動化を実行する CUI。常駐せず、状態も持たない。"
+
+[dependencies]
+lineage-core = { path = "../lineage-core" }
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+clap = { version = "4", features = ["derive"] }
+
+[dev-dependencies]
+lineage-core = { path = "../lineage-core", features = ["testing"] }

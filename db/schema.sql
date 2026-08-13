@@ -107,9 +107,55 @@ CREATE TABLE IF NOT EXISTS settings (
   PRIMARY KEY (workspace_id, key)
 );
 
+-- ここから下は自動化（docs/ui.md「自動化画面」）が使う。
+--
+-- 自動化は「プロンプト ＋ 対象メモ」を生成AIに渡し、その結果を新しい document として
+-- 残す。結果は memo から derived_from で辿れる（＝ lineage に乗る）ので、
+-- 「何から何が作られたか」は自動生成物についても追跡できる。
+CREATE TABLE IF NOT EXISTS automation_rules (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  description TEXT,
+  -- {{memo.title}} / {{memo.body}} / {{memo.metas}} / {{now}} を含むテンプレート。
+  prompt TEXT NOT NULL,
+  -- 'api_key'（ローカルの鍵で HTTP 直呼び）か 'browser'（WebView 操作）。
+  backend_kind TEXT NOT NULL,
+  -- JSON。api_key: {"provider","model","effort"} / browser: {"provider"}
+  backend_config TEXT NOT NULL,
+  -- 'manual' / 'meta_match' / 'schedule'
+  trigger_kind TEXT NOT NULL,
+  -- JSON。meta_match: {"metas":[{"label","value"}]} / schedule: {"cron","metas"}
+  trigger_config TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+-- 実行1回分。結果の本文は documents(document_type = 'automation_result') 側にある。
+--
+-- UNIQUE は張らない。二重実行の抑止は「成功済み/実行中の run が無いものだけ拾う」
+-- という取り出し方で行う。制約にすると手動での再実行と失敗後の再試行まで塞いでしまう。
+CREATE TABLE IF NOT EXISTS automation_runs (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL,
+  rule_id TEXT NOT NULL,
+  source_document_id TEXT NOT NULL,
+  result_document_id TEXT,
+  -- 'running' / 'succeeded' / 'failed' / 'refused'
+  status TEXT NOT NULL,
+  backend_kind TEXT NOT NULL,
+  error TEXT,
+  started_at TEXT NOT NULL,
+  finished_at TEXT
+);
+
 CREATE INDEX IF NOT EXISTS idx_links_workspace_seq ON links(workspace_id, seq);
 CREATE INDEX IF NOT EXISTS idx_links_target ON links(target_kind, target_id);
 CREATE INDEX IF NOT EXISTS idx_documents_workspace_created ON documents(workspace_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_meta_tags_workspace ON meta_tags(workspace_id, usage_count DESC);
 CREATE INDEX IF NOT EXISTS idx_document_meta_document ON document_meta(document_id);
 CREATE INDEX IF NOT EXISTS idx_document_meta_label ON document_meta(label);
+CREATE INDEX IF NOT EXISTS idx_automation_rules_workspace ON automation_rules(workspace_id, enabled);
+CREATE INDEX IF NOT EXISTS idx_automation_runs_rule ON automation_runs(rule_id, source_document_id);
+CREATE INDEX IF NOT EXISTS idx_automation_runs_started ON automation_runs(workspace_id, started_at DESC);

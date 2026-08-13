@@ -1,0 +1,36 @@
+[package]
+name = "lineage-core"
+version = "0.0.5"
+edition = "2024"
+description = "Lineage の中核。ドメイン・ユースケース・永続化を minos / agentos / fullos で共有する。"
+
+[dependencies]
+anyhow = { workspace = true }
+chrono = { workspace = true }
+dirs = { workspace = true }
+rusqlite = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+uuid = { workspace = true }
+
+# 自動化バックエンド（生成AIの HTTP 呼び出し）。Rust に公式 SDK は無いので
+# Messages API を直接叩く。rustls を使い、OS ごとの OpenSSL 依存を避ける。
+reqwest = { version = "0.12", default-features = false, features = [
+  "blocking",
+  "json",
+  "rustls-tls",
+] }
+# API キーは OS の資格情報ストアに置く（SQLite には参照キーすら書かない）。
+keyring = { version = "3", features = [
+  "apple-native",
+  "windows-native",
+  "sync-secret-service",
+] }
+# スケジュール実行の cron 式。
+cron = "0.15"
+
+[features]
+# テスト用の差し替え実装（FixedClock / SequentialIds / in-memory DB など）を公開する。
+# 利用側は dev-dependencies でこの feature を有効にする。
+testing = []

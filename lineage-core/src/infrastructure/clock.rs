@@ -1,6 +1,6 @@
 //! `Clock` / `IdGenerator` port の実装。
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 use std::cell::Cell;
 
 use chrono::SecondsFormat;
@@ -26,19 +26,19 @@ impl IdGenerator for UuidGenerator {
 }
 
 /// テスト用の固定時計。
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 pub struct FixedClock {
     now: String,
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 impl FixedClock {
     pub fn new(now: impl Into<String>) -> Self {
         Self { now: now.into() }
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 impl Clock for FixedClock {
     fn now_rfc3339(&self) -> String {
         self.now.clone()
@@ -46,26 +46,26 @@ impl Clock for FixedClock {
 }
 
 /// テスト用の連番 ID。
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 pub struct SequentialIds {
     next: Cell<u64>,
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 impl SequentialIds {
     pub fn new() -> Self {
         Self { next: Cell::new(1) }
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 impl Default for SequentialIds {
     fn default() -> Self {
         Self::new()
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 impl IdGenerator for SequentialIds {
     fn new_id(&self) -> String {
         let id = self.next.get();

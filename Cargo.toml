@@ -1,0 +1,25 @@
+# Rust 側のワークスペース。
+#
+# ドメインと永続化は lineage-core 1本にまとめ、minos（クイック入力）と
+# agentos（自動化の実行エンジン）はその上に乗る薄い実行ファイルにする。
+# これで hash-chain の実装がアプリごとに分岐しない
+# （docs/concept/MINIMAL_ARCHITECTURE.md「4. Lineage の真正性担保」）。
+#
+# fullos/src-tauri は除外する。tauri のビルドが自分の target/ を前提に
+# バンドルを組み立てるため、ワークスペースに入れると出力先が変わってしまう。
+# lineage-core へはパス依存で参照するので、除外していても共有はできる。
+[workspace]
+resolver = "2"
+members = ["lineage-core", "minos", "agentos"]
+exclude = ["fullos/src-tauri"]
+
+# 3クレートで共有する依存はここでバージョンを決める。
+[workspace.dependencies]
+anyhow = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+dirs = "6"
+rusqlite = { version = "0.40", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+uuid = { version = "1", features = ["v4"] }

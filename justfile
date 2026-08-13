@@ -21,9 +21,16 @@ install:
 dev: install
     pnpm --dir ./fullos run tauri dev
 
-# minos 単体をリリースビルドする。bundle 時は beforeBuildCommand が同じことをする。
-build-minos:
-    cargo build --release --manifest-path ./minos/Cargo.toml
+# minos と agentos をリリースビルドする。bundle 時は beforeBuildCommand が同じことをする。
+#
+# 出力はワークスペース共通の ./target/release/ に入る。fullos の tauri.conf.json は
+# そこを bundle.resources として参照している。
+build-rust:
+    cargo build --release -p minos -p agentos
+
+# Rust 側のテスト（ドメイン・hash-chain・自動化）。
+test-rust:
+    cargo test -p lineage-core -p agentos
 
 # VERSION を唯一の入力として、各パッケージのバージョン表記を同期する。
 [doc("VERSION の値を各マニフェストへ反映する")]
