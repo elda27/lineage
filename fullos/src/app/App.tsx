@@ -15,6 +15,7 @@ import { SearchPage } from "@/features/memo/ui/SearchPage";
 import type { Memo } from "@/features/memo/service/memoView";
 import { useRecordedMemos } from "@/features/memo/service/useRecordedMemos";
 import { SettingsPage } from "@/features/settings/ui/SettingsPage";
+import { AgentSkillDialog } from "@/features/skill/ui/AgentSkillDialog";
 import { UpdateBanner } from "@/features/updater/ui/UpdateBanner";
 import { useAccount } from "@/features/workspace/service/useAccount";
 import type { Page } from "@/shared/navigation";
@@ -43,6 +44,7 @@ export default function App() {
   return (
     <div className="flex min-h-screen">
       <UpdateBanner />
+      <AgentSkillDialog />
       <Sidebar page={page} setPage={setPage} account={account} />
       <main className="ml-[226px] min-h-screen w-[calc(100%-226px)]">
         {page === "home" && (

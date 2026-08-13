@@ -62,6 +62,8 @@ fullosはtauriで実装され、ユーザの操作を自動化するためのAge
 4. 設定画面
    - ユーザの設定を行うことができる。
    - ユーザの設定は、minosの動作やfullosの表示に影響する。
+5. エージェントskillの配置
+   - 起動時に、利用者が使っているエージェントCLIへlineageの手順書（skill）を配置するか確認する。
 
 
 ### 検索画面
@@ -85,5 +87,25 @@ fullosはtauriで実装され、ユーザの操作を自動化するためのAge
 
 実行結果は`documents`に`document_type = 'automation_result'`として保存され、元の記録から`derived_from`のlinkで辿れる。つまり自動生成物も「何から作られたか」がhash-chainに載る。同じ記録を二重に処理しないよう、成功済み・実行中のものは次回の対象から外れる。失敗したものは次回また拾われる（鍵の未登録や通信断は時間をおけば直るため）。
 
+### エージェントskillの配置
+Codex CLI / GitHub Copilot CLI / Gemini CLI / Claude Code は、いずれもホーム直下の設定ディレクトリに置かれた`SKILL.md`を読む。fullosはそこへlineageの手順書（`agentos`の使い方と、台帳を壊さないための決まり）を配置する。エージェントに毎回CUIの使い方を説明させずに済み、`links`へ直接書くような壊し方も先回りして禁じられる。
 
+| エージェント | 配置先（ホームからの相対） |
+| --- | --- |
+| Codex CLI | `.codex/skills/lineage/` |
+| GitHub Copilot CLI | `.copilot/skills/lineage/` |
+| Gemini CLI | `.gemini/skills/lineage/` |
+| Claude Code | `.claude/skills/lineage/` |
 
+配置するのは`SKILL.md`（本文）と`version.json`（版）の2つ。`agentos`の場所は環境ごとに違うため、判明している絶対パスを本文に埋め込んでから書き込む。
+
+起動時の動作は「追加」と「更新」で分かれる。
+
+- **追加** … エージェントCLIが入っていて、まだskillが無い場合。確認ダイアログを出し、対象をチェックボックスで選ばせる。「今後この確認を表示しない」にチェックを付けると、以後ダイアログは出ない（設定は`settings`テーブルの`agent_skill.prompt`）。エージェントCLIが見つからないものには何も置かない。使っていないツールの設定ディレクトリが勝手に増えるのは、利用者から見て説明のつかない変化になるため。
+- **更新** … 既にskillがあり、`version.json`の版が配布する版より古い場合。確認せずに入れ替える。置くことへの同意は既に得られており、古い手順書が残り続けるほうが害になる。「今後表示しない」を選んでいても更新は続く。
+
+版はアプリのVERSIONとは別に持つ（`core/domain/skill/LineageSkill.ts`の`LINEAGE_SKILL_VERSION`）。skillの中身はアプリの更新とは無関係に変わるため、同じ番号にすると「アプリを上げただけで配り直す」ことになる。本文を変えたときは必ずこの値を上げる。
+
+ダイアログを止めたあとの入口として、設定画面に同じ操作（配置状況の一覧・個別の追加・確認を出すかの切り替え）を置く。
+
+ファイルの書き込みはRust側（`fullos/src-tauri/src/skill.rs`）で行う。webviewから渡る相対パスの要素は、`..`・区切り文字・`:`を含むものをRust側で弾く。検査をwebview側に置くと、そこを通さない呼び出しで抜けられるため。
