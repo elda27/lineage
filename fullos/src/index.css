@@ -1,0 +1,44 @@
+@import "tailwindcss";
+
+/* App.css で :root に置いていたデザイントークン。Tailwind のユーティリティ
+   （bg-canvas / text-ink / border-line など）としてそのまま使える。 */
+@theme {
+  --font-sans: Inter, "Noto Sans JP", "Yu Gothic UI", Meiryo, sans-serif;
+  --font-serif: Georgia, "Noto Serif JP", serif;
+
+  --color-ink: #292a28;
+  --color-muted: #85877f;
+  --color-line: #e7e7e1;
+  --color-paper: #fff;
+  --color-accent: #6658b8;
+  --color-soft: #f0eef9;
+  --color-canvas: #f7f7f4;
+}
+
+@layer base {
+  :root {
+    color: var(--color-ink);
+    background: var(--color-canvas);
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    min-width: 960px;
+    min-height: 100vh;
+  }
+}
+
+/* 詳細パネルの表示アニメーション（animate-[slide_.25s_ease] などから参照）。 */
+@keyframes slide {
+  from {
+    transform: translateX(40px);
+    opacity: 0.7;
+  }
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+}

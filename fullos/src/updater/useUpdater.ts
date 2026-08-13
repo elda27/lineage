@@ -17,8 +17,7 @@ export type UpdateStatus =
   | { kind: "ready"; version: string }
   | { kind: "error"; message: string };
 
-const messageOf = (error: unknown) =>
-  error instanceof Error ? error.message : String(error);
+const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 export function useUpdater() {
   const [status, setStatus] = useState<UpdateStatus>({ kind: "idle" });

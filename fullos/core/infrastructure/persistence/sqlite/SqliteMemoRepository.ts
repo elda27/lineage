@@ -1,14 +1,6 @@
-import { DOCUMENT_TYPE_MEMO, type Memo, type MetaTag } from "../../../domain/memo/Memo";
+import { DOCUMENT_TYPE_MEMO, type Memo, type MetaAssignment } from "../../../domain/memo/Memo";
 import type { MemoRepository } from "../../../domain/ports/MemoRepository";
-
-/**
- * `@tauri-apps/plugin-sql` の Database のうち、ここで必要な部分だけ。
- *
- * 直接プラグインの型に依存しないので、テストでは差し替えられる。
- */
-export interface SqlHandle {
-  select<T>(query: string, bindValues?: unknown[]): Promise<T>;
-}
+import { selectOrEmpty, type SqlHandle } from "./SqlHandle";
 
 type MemoRow = {
   id: string;
@@ -31,7 +23,8 @@ export class SqliteMemoRepository implements MemoRepository {
 
   async list(workspaceId: string, limit: number): Promise<Memo[]> {
     // 件数を絞ってから document_meta を結合する（LIMIT がメタ情報の行数に食われないように）。
-    const rows = await this.selectOrEmpty(
+    const rows = await selectOrEmpty<MemoRow>(
+      this.db,
       `SELECT d.id AS id, d.workspace_id AS workspace_id, d.title AS title,
               d.body_text AS body_text, d.created_at AS created_at, d.updated_at AS updated_at,
               m.label AS label, m.value AS value
@@ -48,19 +41,6 @@ export class SqliteMemoRepository implements MemoRepository {
     );
 
     return groupByDocument(rows);
-  }
-
-  /**
-   * minos を一度も起動していないと DB にテーブルが無い。
-   * 「まだ記録が無い」だけなので空一覧として扱う。
-   */
-  private async selectOrEmpty(query: string, bindValues: unknown[]): Promise<MemoRow[]> {
-    try {
-      return await this.db.select<MemoRow[]>(query, bindValues);
-    } catch (error) {
-      if (String(error).includes("no such table")) return [];
-      throw error;
-    }
   }
 }
 
@@ -89,7 +69,7 @@ function groupByDocument(rows: MemoRow[]): Memo[] {
   return [...memos.values()];
 }
 
-function toMetaTag(row: MemoRow): MetaTag {
+function toMetaTag(row: MemoRow): MetaAssignment {
   const label = row.label as string;
   return row.value === null ? { label } : { label, value: row.value };
 }

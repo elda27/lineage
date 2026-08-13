@@ -9,8 +9,13 @@
 /** document_type の値。minos の `DOCUMENT_TYPE_MEMO` と対応する。 */
 export const DOCUMENT_TYPE_MEMO = "memo";
 
-/** 記録に付与されたメタ情報1件（`#タスク` や `#app=chrome.exe`）。 */
-export type MetaTag = {
+/**
+ * 記録に付与されたメタ情報1件（`#タスク` や `#app=chrome.exe`）。
+ *
+ * 補完候補の母集合になる「学習済みタグ」（core/domain/meta/MetaTag.ts）とは別物で、
+ * minos の `MetaAssignment` / `MetaTag` の呼び分けに合わせている。
+ */
+export type MetaAssignment = {
   label: string;
   /** `#label=value` の value。値なしのタグでは undefined。 */
   value?: string;
@@ -23,7 +28,7 @@ export type Memo = {
   /** minos が本文1行目から導出したタイトル。 */
   title: string;
   bodyText: string;
-  metas: MetaTag[];
+  metas: MetaAssignment[];
   /** RFC3339（UTC）。 */
   createdAt: string;
   updatedAt: string;
@@ -53,6 +58,6 @@ export function bodyPreview(bodyText: string): string {
 }
 
 /** 検索やタグ表示に使う文字列表現（`label` または `label=value`）。 */
-export function metaText(meta: MetaTag): string {
+export function metaText(meta: MetaAssignment): string {
   return meta.value ? `${meta.label}=${meta.value}` : meta.label;
 }
