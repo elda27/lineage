@@ -76,6 +76,17 @@ ExitDialog のチェックボックス経由なので UI 付きのときしか�
 ショートカットを併用してもプロセスは増えない
 （[minos/src/infrastructure/system/single_instance.rs](../minos/src/infrastructure/system/single_instance.rs)）。
 
+`--autostart` のときはウィンドウを作るだけで一度も表示しない（gpui の
+`WindowOptions.show = false`）。作ってから隠す作りにすると、gpui が最初の描画を
+終えるまでの数十〜数百 ms のあいだ画面の左上にウィンドウが見えてしまう
+（ログオン直後ほど長い）。その代わり gpui は `WindowOptions` の大きさを適用しないので、
+起動時に隠したまま `resize` で合わせている。
+
+Run 値は**インストール時に書かれる**ので、`--autostart` が付くのは新しい MSI で
+インストールまたは更新したあとから。それより前に入れた環境では引数なしの Run 値が
+残っており、ログオンのたびに入力画面が出る。`reg query "HKLM\Software\Microsoft\Windows\CurrentVersion\Run" /v "lineage Minos"`
+で確かめられる。
+
 ### フラグメントでは handlebars の変数が使えない
 
 `fragmentPaths` のファイルは handlebars に **パースはされるが展開はされない**。
