@@ -34,10 +34,12 @@ tauri-cli v2.11.4 の `crates/tauri-bundler/src/bundle/windows/msi/main.wxs` で
 （[minos/src/infra/system/launcher.rs](../minos/src/infra/system/launcher.rs)）、
 ここを変えると起動導線が壊れる。
 
-minos.exe は
+minos.exe / agentos.exe は
 [fullos/src-tauri/tauri.conf.json](../fullos/src-tauri/tauri.conf.json) の
-`build.beforeBuildCommand` でビルドされ（`cargo build --release --manifest-path ../minos/Cargo.toml`）、
-`bundle.resources` でインストール先直下に入る。ショートカットと自動起動だけは Tauri が
+`build.beforeBuildCommand` でビルドされ
+（`cargo build --release --manifest-path ../Cargo.toml -p minos -p agentos`）、
+`bundle.resources` でインストール先直下に入る。beforeBuildCommand の作業ディレクトリは
+`src-tauri` ではなく package.json のある `fullos` なので、相対パスはそこを起点に書く。ショートカットと自動起動だけは Tauri が
 生成するコンポーネントから参照できないので、WiX フラグメントを 1 枚足して
 `bundle.windows.wix.fragmentPaths` / `componentGroupRefs` から読ませている。
 Tauri v2 の MSI は WiX v3 なので、フラグメントのスキーマは `wix/2006/wi`（v4/v5 ではない）。
