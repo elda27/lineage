@@ -4,6 +4,9 @@ Windows 向け配布は GitHub Release を単一の配布元とする。
 リリースを publish すると `.github/workflows/release.yml` が走り、インストーラを
 そのリリースに添付する。fullos はそのリリースの `latest.json` を見て自己更新する。
 
+正式リリースとは別に、main の最新から作る開発版を
+[nightly](#nightly開発版) プレリリースとして常時公開している。
+
 インストーラは **fullos と minos をまとめた 1 本の MSI**。
 
 | 成果物                               | 中身                          | 生成元                                           |
@@ -139,6 +142,49 @@ Run 値を HKCU ではなく HKLM に置いているのは、この MSI が `Ins
 
 タグは `vX.Y.Z` 形式であること。MSI のバージョンと `latest.json` の `version` は
 `VERSION` から決まる。タグと一致しない場合はビルド前に workflow が失敗する。
+
+## nightly（開発版）
+
+main が更新される（= PR が merge される、または直接 push される）たびに
+[`.github/workflows/nightly.yml`](../.github/workflows/nightly.yml) が走り、
+その時点の main から MSI を作って
+**[nightly](https://github.com/elda27/lineage/releases/tag/nightly) プレリリース**へ載せ替える。
+手動で走らせたいときは workflow_dispatch から実行する。
+`docs/**` と `*.md` だけの更新では走らない（MSI の中身が変わらないため）。
+
+| 項目             | 正式リリース                | nightly                             |
+| ---------------- | --------------------------- | ----------------------------------- |
+| きっかけ         | リリースを publish          | main への push / merge              |
+| タグ             | `vX.Y.Z`（固定）            | `nightly`（毎回 main の先頭へ移動） |
+| バージョン       | `VERSION` そのまま          | `X.Y.(Z+1)-<run_number>`            |
+| prerelease       | いいえ                      | **はい**                            |
+| アプリ内 updater | ここから更新する            | 配らない                            |
+
+- 常に 1 つのリリースを使い回すので、最新の開発版はいつも同じ URL にある。
+  ビルド中に次の push が来た場合は走行中のジョブを捨てて新しい方だけを作る。
+- 古いビルドの MSI は、新しい MSI を上げ切ったあとに消す。ビルドが落ちても
+  前回の nightly はリリースに残る。
+- **prerelease であることが重要。** GitHub の `releases/latest` は prerelease を返さないため、
+  fullos のアプリ内 updater（`releases/latest/download/latest.json`）は nightly を拾わない。
+  nightly リリースにも `latest.json` は付くが、これを見にいくのは
+  エンドポイントを nightly に向けた場合だけ。
+  workflow は成果物を上げたあとにも prerelease フラグを付け直して、この前提を守る。
+- nightly を入れた環境は、アプリ内 updater が正式リリース（`0.0.7-42` に対する `0.0.7`）を
+  新しい版として提示する。開発版から正式版へは自動で戻れる、という挙動になる。
+
+バージョンのパッチを 1 つ上げているのは semver の順序のため。prerelease は同じ数値の
+正式版より古い扱いなので、`VERSION` が `0.0.6` のまま `0.0.6-42` にすると、
+リリース済みの `0.0.6` より古い版として扱われてしまう。
+
+prerelease 部分を実行番号（数字だけ）にしているのは MSI のため。Tauri のバンドラは
+semver を WiX の `ProductVersion`（`X.Y.Z.W`）へ変換するとき prerelease を 4 つ目の桁に使うので、
+`-nightly` のような文字列を入れるとビルドが落ちる。`0.0.7-42` は `0.0.7.42` になる。
+4 つ目の桁は Windows のアップグレード判定では見られないが、vendoring した
+[main.wxs](../fullos/src-tauri/wix/main.wxs) の `MajorUpgrade` が
+`AllowSameVersionUpgrades="yes"` なので、nightly を続けて上書きインストールできる。
+
+`VERSION` はビルド中に書き換えるだけでコミットしない。リポジトリ上の `VERSION` は
+最後に出した正式リリースの値のままになる。
 
 ## 初回だけ必要な設定：updater の署名鍵
 
