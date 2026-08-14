@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import { AutomationSettings } from "@/features/automation/ui/AutomationSettings";
+import { AgentSkillSettings } from "@/features/skill/ui/AgentSkillSettings";
 import {
   eyebrow,
   Icon,
@@ -90,6 +91,7 @@ export function SettingsPage() {
         </div>
       </section>
       <AutomationSettings />
+      <AgentSkillSettings />
     </div>
   );
 }

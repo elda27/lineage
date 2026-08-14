@@ -7,6 +7,8 @@ import type {
 import type { BrowserProfile } from "@core/domain/automation/BrowserProfile";
 import type { MetaSuggestion } from "@core/domain/meta/MetaTag";
 import type { Memo } from "@core/domain/memo/Memo";
+import type { AgentSkillPreference } from "@core/domain/skill/AgentSkill";
+import type { AgentSkillSync } from "@core/app/skill/SyncAgentSkills";
 import type { StorageUsage } from "@core/domain/storage/StorageUsage";
 
 /**
@@ -100,4 +102,20 @@ export interface ApplicationPort {
   registerSchedule(): Promise<void>;
 
   unregisterSchedule(): Promise<void>;
+
+  /**
+   * エージェント CLI に配った skill の状態を調べ、古いものを最新へ入れ替える。
+   *
+   * 追加（まだ skill を持たないエージェントへ置く）はここでは行わない。利用者への
+   * 確認が要るので、候補だけ返して判断は UI に委ねる。
+   */
+  syncAgentSkills(): Promise<AgentSkillSync>;
+
+  /** 選ばれたエージェント CLI へ skill を配る。 */
+  installAgentSkills(targetIds: string[]): Promise<void>;
+
+  /** 起動時の確認ダイアログを出すかどうかの設定。 */
+  agentSkillPreference(): Promise<AgentSkillPreference>;
+
+  saveAgentSkillPreference(preference: AgentSkillPreference): Promise<void>;
 }

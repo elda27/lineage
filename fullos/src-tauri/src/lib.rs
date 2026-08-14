@@ -1,6 +1,7 @@
 mod automation;
 mod browser;
 mod schedule;
+mod skill;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -37,6 +38,9 @@ pub fn run() {
             schedule::schedule_status,
             schedule::schedule_register,
             schedule::schedule_unregister,
+            skill::agent_skill_scan,
+            skill::agent_skill_install,
+            skill::agent_skill_agentos_path,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

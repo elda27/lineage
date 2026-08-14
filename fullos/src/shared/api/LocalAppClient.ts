@@ -16,6 +16,13 @@ import {
   type BrowserProfile,
 } from "@core/domain/automation/BrowserProfile";
 import {
+  AGENT_SKILL_PREFERENCE_KEY,
+  parseAgentSkillPreference,
+  type AgentSkillPreference,
+} from "@core/domain/skill/AgentSkill";
+import { InstallAgentSkills, SyncAgentSkills } from "@core/app/skill/SyncAgentSkills";
+import { TauriAgentSkillStore } from "@core/infra/agent/TauriAgentSkillStore";
+import {
   SqliteAutomationRuleRepository,
   SqliteAutomationRunRepository,
 } from "@core/infra/persistence/sqlite/SqliteAutomationRepository";
@@ -53,6 +60,8 @@ export async function createLocalAppClient(): Promise<ApplicationPort> {
   const automationRules = new SqliteAutomationRuleRepository(db);
   const automationRuns = new SqliteAutomationRunRepository(db);
   const settings = new SqliteSettingsRepository(db);
+  // skill の配置はホーム以下のファイル操作なので、DB ではなく Rust 側に委ねる。
+  const agentSkills = new TauriAgentSkillStore(invoke);
 
   return {
     listMemos: (limit = DEFAULT_MEMO_LIMIT) =>
@@ -112,6 +121,19 @@ export async function createLocalAppClient(): Promise<ApplicationPort> {
     registerSchedule: () => invoke("schedule_register"),
 
     unregisterSchedule: () => invoke("schedule_unregister"),
+
+    syncAgentSkills: () => new SyncAgentSkills(agentSkills).execute(),
+
+    installAgentSkills: (targetIds: string[]) =>
+      new InstallAgentSkills(agentSkills).execute(targetIds),
+
+    agentSkillPreference: async () =>
+      parseAgentSkillPreference(
+        await settings.get(DEFAULT_WORKSPACE_ID, AGENT_SKILL_PREFERENCE_KEY),
+      ),
+
+    saveAgentSkillPreference: (preference: AgentSkillPreference) =>
+      settings.set(DEFAULT_WORKSPACE_ID, AGENT_SKILL_PREFERENCE_KEY, JSON.stringify(preference)),
 
     saveBrowserProfileOverrides: (overrides) =>
       settings.set(DEFAULT_WORKSPACE_ID, BROWSER_PROFILES_SETTING_KEY, JSON.stringify(overrides)),
