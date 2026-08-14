@@ -2,7 +2,11 @@ import Database from "@tauri-apps/plugin-sql";
 import { invoke } from "@tauri-apps/api/core";
 import { join, localDataDir } from "@tauri-apps/api/path";
 
+import { ArchiveCompletedTasks } from "@core/app/memo/ArchiveCompletedTasks";
+import { ArchiveMemo } from "@core/app/memo/ArchiveMemo";
 import { ListMemos, DEFAULT_MEMO_LIMIT } from "@core/app/memo/ListMemos";
+import { SetMemoDone } from "@core/app/memo/SetMemoDone";
+import { TrashMemo } from "@core/app/memo/TrashMemo";
 import { SuggestMetaTags, DEFAULT_SUGGESTION_LIMIT } from "@core/app/meta/SuggestMetaTags";
 import type {
   AutomationRule,
@@ -21,6 +25,7 @@ import {
 } from "@core/infra/persistence/sqlite/SqliteAutomationRepository";
 import { SqliteSettingsRepository } from "@core/infra/persistence/sqlite/SqliteSettingsRepository";
 import { SqliteMemoRepository } from "@core/infra/persistence/sqlite/SqliteMemoRepository";
+import { SqliteMemoStateRepository } from "@core/infra/persistence/sqlite/SqliteMemoStateRepository";
 import { SqliteMetaTagRepository } from "@core/infra/persistence/sqlite/SqliteMetaTagRepository";
 import type { ApplicationPort } from "./ApplicationPort";
 
@@ -49,6 +54,7 @@ const DEFAULT_RUN_LIMIT = 50;
 export async function createLocalAppClient(): Promise<ApplicationPort> {
   const db = await Database.load(`sqlite:${await minosDatabasePath()}`);
   const memos = new SqliteMemoRepository(db);
+  const memoStates = new SqliteMemoStateRepository(db);
   const metaTags = new SqliteMetaTagRepository(db);
   const automationRules = new SqliteAutomationRuleRepository(db);
   const automationRuns = new SqliteAutomationRunRepository(db);
@@ -56,7 +62,20 @@ export async function createLocalAppClient(): Promise<ApplicationPort> {
 
   return {
     listMemos: (limit = DEFAULT_MEMO_LIMIT) =>
-      new ListMemos(memos).execute(DEFAULT_WORKSPACE_ID, limit),
+      new ListMemos(memos, memoStates).execute(DEFAULT_WORKSPACE_ID, limit),
+
+    // 組み込みタグの状態は lineage(links) を生まない行なので、ここから直接書く。
+    setMemoDone: (memoId, done) =>
+      new SetMemoDone(memoStates).execute(DEFAULT_WORKSPACE_ID, memoId, done, new Date()),
+
+    setMemoArchived: (memoId, archived) =>
+      new ArchiveMemo(memoStates).execute(DEFAULT_WORKSPACE_ID, memoId, archived, new Date()),
+
+    trashMemo: (memoId) =>
+      new TrashMemo(memoStates).execute(DEFAULT_WORKSPACE_ID, memoId, new Date()),
+
+    archiveCompletedTasks: () =>
+      new ArchiveCompletedTasks(memoStates).execute(DEFAULT_WORKSPACE_ID, new Date()),
 
     suggestMetaTags: (query, limit = DEFAULT_SUGGESTION_LIMIT) =>
       new SuggestMetaTags(metaTags).execute(DEFAULT_WORKSPACE_ID, query, limit),

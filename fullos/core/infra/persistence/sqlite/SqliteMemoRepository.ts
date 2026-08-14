@@ -1,4 +1,5 @@
 import { DOCUMENT_TYPE_MEMO, type Memo, type MetaAssignment } from "../../../domain/memo/Memo";
+import { DEFAULT_MEMO_STATE } from "../../../domain/memo/MemoState";
 import type { MemoRepository } from "../../../domain/ports/MemoRepository";
 import { selectOrEmpty, type SqlHandle } from "./SqlHandle";
 
@@ -56,6 +57,9 @@ function groupByDocument(rows: MemoRow[]): Memo[] {
         title: row.title,
         bodyText: row.body_text ?? "",
         metas: [],
+        // 組み込みタグの状態は document_states 側にあり、
+        // ListMemos が MemoStateRepository の結果を重ねる。
+        state: DEFAULT_MEMO_STATE,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
       };

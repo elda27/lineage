@@ -170,7 +170,10 @@ rusqlite がどちらも native の sqlite3 をリンクしていて同居でき
 結果として `links` への追記は minos と agentos の2か所だけになり、
 どちらも同じ lineage-core のコードを通る（4章の不変条件を保つ）。
 fullos の webview は plugin-sql で読み出しと、lineage を生まない行
-（automation_rules / settings）の書き込みだけを行う。
+（automation_rules / settings / document_states）の書き込みだけを行う。
+document_states は組み込みタグの状態（完了・アーカイブ・ゴミ箱）で、記録そのものは
+変えず見せ方だけを変えるので鎖には載らない。削除も deleted_at を立てる論理削除にして、
+links の指す先が消えないようにしている。
 
 ---
 

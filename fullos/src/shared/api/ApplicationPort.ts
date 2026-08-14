@@ -16,8 +16,36 @@ import type { StorageUsage } from "@core/domain/storage/StorageUsage";
  * UI はどちらに繋がっているかを知らない（docs/concept/MINIMAL_ARCHITECTURE.md 1.）。
  */
 export interface ApplicationPort {
-  /** 記録を新しい順に取得する。 */
+  /**
+   * 記録を取得する。
+   *
+   * ゴミ箱のものは含まない。組み込みタグ（`#タスク` / `#メモ`）の付いた記録が先に、
+   * 同じ優先度では新しい順に並ぶ。アーカイブ済みも含めて返すので、
+   * 一覧から外すかどうかは画面側が決める。
+   */
   listMemos(limit?: number): Promise<Memo[]>;
+
+  /** 完了フラグを切り替える（組み込みタグ `#タスク` のチェック）。 */
+  setMemoDone(memoId: string, done: boolean): Promise<void>;
+
+  /** アーカイブする／戻す。アーカイブすると一覧から外れ、検索したときだけ出る。 */
+  setMemoArchived(memoId: string, archived: boolean): Promise<void>;
+
+  /**
+   * ゴミ箱へ入れる。
+   *
+   * documents の行は消さない。links の指す先が失われると hash-chain を辿れなくなるため、
+   * 削除は論理削除で表す。
+   */
+  trashMemo(memoId: string): Promise<void>;
+
+  /**
+   * 完了したタスクをまとめてアーカイブする。fullos を閉じるときに呼ぶ。
+   *
+   * チェックした瞬間ではなく閉じるときにまとめるのは、開いている間は取り消せる
+   * ようにしておくため（docs/ui.md「組み込みタグ」）。
+   */
+  archiveCompletedTasks(): Promise<void>;
 
   /**
    * 検索バーで `#` を打ったときのメタ情報の補完候補。

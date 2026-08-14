@@ -4,19 +4,19 @@ import { bodyPreview } from "@core/domain/memo/Memo";
 import { ActionMenu } from "@/features/automation/ui/ActionMenu";
 import { absoluteDateTime } from "@/shared/format";
 import { Icon, primaryButton, quietButton, secondaryButton } from "@/shared/ui/kit";
-import type { Memo } from "../service/memoView";
+import { can, type Memo, type MemoActions } from "../service/memoView";
 import { MetaChips } from "./MetaChips";
 
 export function MemoDetail({
   memo,
   close,
   update,
-  remove,
+  actions,
 }: {
   memo: Memo;
   close: () => void;
   update: (m: Memo) => void;
-  remove: () => void;
+  actions: MemoActions;
 }) {
   const [editing, setEditing] = useState(false),
     [title, setTitle] = useState(memo.title),
@@ -40,10 +40,38 @@ export function MemoDetail({
             ← 戻る
           </button>
           <div className="flex">
+            {/* 組み込みタグで有効になった操作（docs/ui.md「組み込みタグ」）。 */}
+            {can(memo, "complete") && (
+              <button
+                className={`${quietButton} ${memo.done ? "text-[#578170]" : ""}`}
+                aria-label={memo.done ? "未完了に戻す" : "完了にする"}
+                aria-pressed={memo.done}
+                onClick={() => actions.toggleDone(memo)}
+              >
+                <Icon name="check" />
+              </button>
+            )}
+            {can(memo, "archive") && (
+              <button
+                className={`${quietButton} ${memo.archived ? "text-[#578170]" : ""}`}
+                aria-label={memo.archived ? "アーカイブから戻す" : "アーカイブする"}
+                aria-pressed={memo.archived}
+                onClick={() => actions.setArchived(memo, !memo.archived)}
+              >
+                <Icon name="archive" />
+              </button>
+            )}
             <button className={quietButton} onClick={() => setEditing(true)}>
               <Icon name="edit" />
             </button>
-            <button className={`${quietButton} text-[#b05d5d]`} onClick={remove}>
+            <button
+              className={`${quietButton} text-[#b05d5d]`}
+              aria-label="ゴミ箱へ入れる"
+              onClick={() => {
+                actions.trash(memo);
+                close();
+              }}
+            >
               <Icon name="trash" />
             </button>
           </div>
@@ -90,6 +118,12 @@ export function MemoDetail({
             <span>種類</span>
             <b className="font-medium">{memo.type === "task" ? "タスク" : "メモ"}</b>
           </div>
+          {memo.capabilities.length > 0 && (
+            <div>
+              <span>状態</span>
+              <b className="font-medium">{stateLabel(memo)}</b>
+            </div>
+          )}
           <div>
             <span>メタ情報</span>
             <div>
@@ -108,4 +142,15 @@ export function MemoDetail({
       </aside>
     </div>
   );
+}
+
+/**
+ * 組み込みタグの状態の表示。
+ *
+ * 完了したタスクは fullos を閉じるときにアーカイブされるので、その予告も兼ねる。
+ */
+function stateLabel(memo: Memo): string {
+  if (memo.archived) return "アーカイブ済み";
+  if (memo.done) return "完了（閉じるときにアーカイブされます）";
+  return "未処理";
 }

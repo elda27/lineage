@@ -8,7 +8,7 @@ import {
   smallPrimaryButton,
   subheading,
 } from "@/shared/ui/kit";
-import type { LoadState, Memo } from "../service/memoView";
+import { activeMemos, type LoadState, type Memo, type MemoActions } from "../service/memoView";
 import { MemoList } from "./MemoList";
 import { SearchBox } from "./SearchBox";
 
@@ -19,7 +19,7 @@ export function HomePage({
   setQuery,
   setPage,
   openMemo,
-  toggleMemo,
+  actions,
   createMemo,
   enabledRuleCount,
 }: {
@@ -29,10 +29,13 @@ export function HomePage({
   setQuery: (v: string) => void;
   setPage: (p: Page) => void;
   openMemo: (m: Memo) => void;
-  toggleMemo: (id: string) => void;
+  actions: MemoActions;
   createMemo: () => void;
   enabledRuleCount: number;
 }) {
+  // アーカイブ済みは検索したときだけ出す（docs/ui.md「組み込みタグ」）。
+  // 並び順は ListMemos が済ませてあり、組み込みタグの付いた記録が先に来る。
+  const visible = activeMemos(memos);
   const quickCard =
     "flex cursor-pointer items-center gap-3 rounded-[10px] border border-line bg-white p-[15px] text-left hover:-translate-y-px hover:border-[#cfcec7]";
   return (
@@ -62,7 +65,7 @@ export function HomePage({
         <div className="mb-[19px] flex items-start justify-between">
           <div>
             <h2 className={subheading}>最近の記録</h2>
-            <p className="text-xs text-muted">新しく追加・更新されたメモ</p>
+            <p className="text-xs text-muted">タスクとメモを先に、新しい順で表示します</p>
           </div>
           <button
             className="flex cursor-pointer items-center gap-[7px] border-0 bg-transparent text-xs text-[#686a65]"
@@ -72,10 +75,10 @@ export function HomePage({
           </button>
         </div>
         <MemoList
-          memos={memos.slice(0, 4)}
+          memos={visible.slice(0, 4)}
           status={status}
           openMemo={openMemo}
-          toggleMemo={toggleMemo}
+          actions={actions}
           empty={{
             icon: "inbox",
             title: "まだ記録がありません",
@@ -90,7 +93,7 @@ export function HomePage({
             <span className="flex flex-1 flex-col">
               <b className="text-[12px]">すべての記録</b>
               <small className="mt-[3px] text-[9px] text-[#969791]">
-                {memos.length} 件のメモとタスク
+                {visible.length} 件のメモとタスク
               </small>
             </span>
             <Icon name="arrow" />

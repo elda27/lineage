@@ -6,6 +6,9 @@
  * ここは domain なので DB / Tauri / fetch には一切依存しない。
  */
 
+import { builtinPriority, NO_BUILTIN_PRIORITY } from "./BuiltinTag";
+import type { MemoState } from "./MemoState";
+
 /** document_type の値。minos の `DOCUMENT_TYPE_MEMO` と対応する。 */
 export const DOCUMENT_TYPE_MEMO = "memo";
 
@@ -29,21 +32,31 @@ export type Memo = {
   title: string;
   bodyText: string;
   metas: MetaAssignment[];
+  /**
+   * 組み込みタグの機能が付けた状態（完了・アーカイブ・ゴミ箱）。
+   *
+   * documents ではなく document_states に持つので、記録そのものとは別の
+   * リポジトリから来る。状態を一度も変えていない記録は DEFAULT_MEMO_STATE。
+   */
+  state: MemoState;
   /** RFC3339（UTC）。 */
   createdAt: string;
   updatedAt: string;
 };
 
 /**
- * タスクとして扱うメタ情報のラベル。
+ * 一覧の並び順。
  *
- * minos 側にタスク種別は無く、利用者が付けた `#タスク` が唯一の手がかりになる
- * （docs/ui.md「自動化画面」でもメタ情報でタスクを束ねる想定）。
+ * 組み込みタグの付いた記録を先に出す（docs/ui.md「組み込みタグ」）。
+ * 完了したタスクは優先度を失い、同じ優先度どうしでは新しい順になる。
+ * 完了しても即座に消えないのは、閉じるまで取り消せるようにしておくため。
  */
-const TASK_LABELS = ["タスク", "task"];
+export function compareMemosForList(a: Memo, b: Memo): number {
+  return listPriority(b) - listPriority(a) || b.createdAt.localeCompare(a.createdAt);
+}
 
-export function isTask(memo: Memo): boolean {
-  return memo.metas.some((meta) => TASK_LABELS.includes(meta.label));
+function listPriority(memo: Memo): number {
+  return memo.state.done ? NO_BUILTIN_PRIORITY : builtinPriority(memo.metas);
 }
 
 /** タイトルは本文1行目なので、一覧では2行目以降だけを本文プレビューにする。 */

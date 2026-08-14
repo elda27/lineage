@@ -97,6 +97,27 @@ CREATE TABLE IF NOT EXISTS document_meta (
   UNIQUE(document_id, label)
 );
 
+-- 組み込みタグ（docs/ui.md「組み込みタグ」）の機能が付ける、記録ごとの状態。
+--
+-- 「タスクの完了」「アーカイブ」「ゴミ箱」は利用者が打ったメタ情報ではなく操作の結果
+-- なので、document_meta とは分けて持つ。行が無い記録は「未完了・未アーカイブ・
+-- ゴミ箱でない」という既定の状態として扱うので、状態を変えたときだけ行ができる。
+--
+-- 削除は行の物理削除ではなく deleted_at で表す。documents は links から参照されており、
+-- 消すと hash-chain の指す先が失われるため（docs/concept/MINIMAL_ARCHITECTURE.md 4.）。
+CREATE TABLE IF NOT EXISTS document_states (
+  document_id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL,
+  -- 完了フラグ。1 = 完了。
+  done INTEGER NOT NULL DEFAULT 0,
+  done_at TEXT,
+  -- アーカイブ済みなら日時。一覧から外れ、検索したときだけ出る。
+  archived_at TEXT,
+  -- ゴミ箱に入れた日時。一覧にも検索結果にも出ない。
+  deleted_at TEXT,
+  updated_at TEXT NOT NULL
+);
+
 -- 利用者の設定。minos の動作と fullos の表示の両方に効く（docs/ui.md「fullos」4.）ため、
 -- minos が書いた値を fullos の設定画面から編集できるよう同じテーブルに置く。
 CREATE TABLE IF NOT EXISTS settings (
@@ -156,6 +177,7 @@ CREATE INDEX IF NOT EXISTS idx_documents_workspace_created ON documents(workspac
 CREATE INDEX IF NOT EXISTS idx_meta_tags_workspace ON meta_tags(workspace_id, usage_count DESC);
 CREATE INDEX IF NOT EXISTS idx_document_meta_document ON document_meta(document_id);
 CREATE INDEX IF NOT EXISTS idx_document_meta_label ON document_meta(label);
+CREATE INDEX IF NOT EXISTS idx_document_states_workspace ON document_states(workspace_id);
 CREATE INDEX IF NOT EXISTS idx_automation_rules_workspace ON automation_rules(workspace_id, enabled);
 CREATE INDEX IF NOT EXISTS idx_automation_runs_rule ON automation_runs(rule_id, source_document_id);
 CREATE INDEX IF NOT EXISTS idx_automation_runs_started ON automation_runs(workspace_id, started_at DESC);

@@ -1,5 +1,5 @@
 import { cardSurface, Icon, type IconName } from "@/shared/ui/kit";
-import type { LoadState, Memo } from "../service/memoView";
+import type { LoadState, Memo, MemoActions } from "../service/memoView";
 import { MemoCard } from "./MemoCard";
 
 /** 読み込み中・失敗・0件をひと通り出す一覧。 */
@@ -7,14 +7,14 @@ export function MemoList({
   memos,
   status,
   openMemo,
-  toggleMemo,
+  actions,
   className = cardSurface,
   empty,
 }: {
   memos: Memo[];
   status: LoadState;
   openMemo: (m: Memo) => void;
-  toggleMemo: (id: string) => void;
+  actions: MemoActions;
   className?: string;
   empty: { icon: IconName; title: string; hint: string };
 }) {
@@ -49,12 +49,7 @@ export function MemoList({
   return (
     <div className={className}>
       {memos.map((m) => (
-        <MemoCard
-          memo={m}
-          key={m.id}
-          onOpen={() => openMemo(m)}
-          onToggle={() => toggleMemo(m.id)}
-        />
+        <MemoCard memo={m} key={m.id} onOpen={() => openMemo(m)} actions={actions} />
       ))}
     </div>
   );

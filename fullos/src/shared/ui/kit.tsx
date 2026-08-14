@@ -48,6 +48,7 @@ export type IconName =
   | "edit"
   | "command"
   | "inbox"
+  | "archive"
   | "chevron"
   | "play"
   | "moon";
@@ -133,6 +134,12 @@ export function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
       <>
         <path d="M4 5h16v14H4z" />
         <path d="M4 14h5l2 2h2l2-2h5" />
+      </>
+    ),
+    archive: (
+      <>
+        <path d="M3 5h18v4H3zM5 9v10h14V9" />
+        <path d="M10 13h4" />
       </>
     ),
     chevron: <path d="m9 7 5 5-5 5" />,
