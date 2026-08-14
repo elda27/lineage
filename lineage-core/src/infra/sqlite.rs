@@ -405,6 +405,9 @@ impl AutomationRunStore for Database {
         let conn = self.conn.borrow();
         // 「成功済み or 実行中」の run があるものを除く。失敗した記録は残るので、
         // 鍵の未登録や通信断のような一時的な失敗は次の poll で自然に再試行される。
+        //
+        // ゴミ箱に入れた記録（document_states.deleted_at）も除く。利用者が捨てたものに
+        // 自動化を当て続けると、結果の document だけが増えていく。
         let mut statement = conn.prepare(
             "SELECT id, title, body_text, created_at
              FROM documents d
@@ -415,6 +418,11 @@ impl AutomationRunStore for Database {
                      WHERE r.rule_id = ?3
                        AND r.source_document_id = d.id
                        AND r.status IN ('running', 'succeeded')
+                   )
+               AND NOT EXISTS (
+                     SELECT 1 FROM document_states s
+                     WHERE s.document_id = d.id
+                       AND s.deleted_at IS NOT NULL
                    )
              ORDER BY d.created_at DESC LIMIT ?4",
         )?;
@@ -670,12 +678,13 @@ mod tests {
         let count: i64 = conn
             .query_row(
                 "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name IN
-                 ('workspaces', 'documents', 'links', 'meta_tags', 'document_meta')",
+                 ('workspaces', 'documents', 'links', 'meta_tags', 'document_meta',
+                  'document_states')",
                 [],
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(count, 5);
+        assert_eq!(count, 6);
     }
 
     #[test]

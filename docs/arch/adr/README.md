@@ -134,7 +134,11 @@ ADRは議論全文や会議録を保存する場所ではありません。詳�
 
 | ID  | Title | Status | Area | Scope | Date | Replaces |
 | --- | ----- | ------ | ---- | ----- | ---- | -------- |
+| [ADR-0001](./0001-store-builtin-tag-state-outside-document-meta.md) | 組み込みタグの状態を document_states に分離し、削除は論理削除とする | accepted | domain, data | application | 2026-08-14 | - |
+
 ## 5. 現在有効なADR（status: accepted）
+
+- [ADR-0001](./0001-store-builtin-tag-state-outside-document-meta.md): 組み込みタグの状態を document_states に分離し、削除は論理削除とする
 
 ## 6. superseded関係
 
