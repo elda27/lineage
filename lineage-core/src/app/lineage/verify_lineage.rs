@@ -46,13 +46,19 @@ mod tests {
                     workspace_id: "ws".into(),
                     workspace_name: "minos".into(),
                     body: body.into(),
+                    document_id: None,
                     metas: Vec::new(),
                     context: None,
                 })
                 .unwrap();
         }
 
-        assert!(VerifyLineage::new(&db, &hasher).execute("ws").unwrap().is_ok());
+        assert!(
+            VerifyLineage::new(&db, &hasher)
+                .execute("ws")
+                .unwrap()
+                .is_ok()
+        );
 
         // 台帳を直接書き換える（＝改ざん）。
         db.force_update_link_actor_for_test("ws", 2, "someone-else")

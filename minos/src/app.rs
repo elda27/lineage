@@ -9,12 +9,14 @@ use std::rc::Rc;
 use anyhow::Result;
 
 use lineage_core::app::capture::{CaptureMemo, CaptureMemoInput, CaptureMemoOutput};
+use lineage_core::app::lineage::VerifyLineage;
 use lineage_core::app::meta::CompleteMetaTag;
 use lineage_core::app::settings::{LoadSettings, SaveSettings};
-use lineage_core::app::lineage::VerifyLineage;
+use lineage_core::domain::automation::MemoSnapshot;
 use lineage_core::domain::capture::CaptureContext;
 use lineage_core::domain::lineage::VerifyResult;
 use lineage_core::domain::meta::{MetaAssignment, MetaSuggestion};
+use lineage_core::domain::ports::MemoQuery;
 use lineage_core::domain::settings::Settings;
 use lineage_core::infra::clock::{SystemClock, UuidGenerator};
 use lineage_core::infra::crypto::Sha256Hasher;
@@ -50,16 +52,26 @@ impl Services {
         body: String,
         metas: Vec<MetaAssignment>,
         context: Option<CaptureContext>,
+        document_id: Option<String>,
     ) -> Result<CaptureMemoOutput> {
         CaptureMemo::new(&self.database, &self.clock, &self.ids, &self.hasher).execute(
             CaptureMemoInput {
                 workspace_id: self.workspace_id.clone(),
                 workspace_name: DEFAULT_WORKSPACE_NAME.to_string(),
                 body,
+                document_id,
                 metas,
                 context,
             },
         )
+    }
+
+    pub fn recent_memos(&self, limit: usize) -> Result<Vec<MemoSnapshot>> {
+        self.database.recent(&self.workspace_id, limit)
+    }
+
+    pub fn memo(&self, document_id: &str) -> Result<Option<MemoSnapshot>> {
+        self.database.get(&self.workspace_id, document_id)
     }
 
     /// `#` の入力補完候補。
