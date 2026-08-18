@@ -92,6 +92,7 @@ fn main() {
 
     gpui_platform::application().run(move |cx: &mut App| {
         gpui_component::init(cx);
+        features::capture::view::init(cx);
 
         let app_window = Rc::new(AppWindow::new());
         let events = bridge.events();

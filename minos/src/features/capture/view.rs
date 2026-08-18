@@ -16,7 +16,8 @@ use std::time::Duration;
 
 use gpui::prelude::*;
 use gpui::{
-    Context, Entity, Focusable, MouseButton, SharedString, Subscription, Window, div, px,
+    App, Context, Entity, Focusable, KeyBinding, MouseButton, SharedString, Subscription, Window,
+    actions, div, px,
 };
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::input::{Backspace, Escape, Input, InputEvent, InputState};
@@ -36,6 +37,19 @@ const HIDE_AFTER_SAVE: Duration = Duration::from_millis(700);
 /// 直前アプリへ Ctrl+C を送ってからクリップボードの更新を待つ上限。
 const CLIPBOARD_WAIT: Duration = Duration::from_millis(400);
 const CLIPBOARD_POLL: Duration = Duration::from_millis(20);
+
+actions!(minos, [LaunchFullos]);
+
+const KEY_CONTEXT: &str = "Minos";
+
+/// minos の入力画面で使うキーボードショートカットを登録する。
+pub fn init(cx: &mut App) {
+    cx.bind_keys([KeyBinding::new(
+        "alt-f",
+        LaunchFullos,
+        Some(KEY_CONTEXT),
+    )]);
+}
 
 /// 選択テキストの取り込み方。
 #[derive(Debug, Clone, Copy)]
@@ -448,7 +462,10 @@ impl CaptureView {
 impl Render for CaptureView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         v_flex()
-            .key_context("Minos")
+            .key_context(KEY_CONTEXT)
+            .on_action(cx.listener(|this, _: &LaunchFullos, _window, cx| {
+                this.launch_fullos(cx)
+            }))
             // 入力欄が処理しなかった Esc だけがここに届く（補完中は補完が閉じるだけ）。
             .on_action(cx.listener(|this, _: &Escape, _window, cx| this.dismiss(cx)))
             .capture_action(cx.listener(Self::on_backspace))
@@ -482,7 +499,7 @@ impl Render for CaptureView {
                                 Button::new("launch-fullos")
                                     .ghost()
                                     .xsmall()
-                                    .label("fullos を開く")
+                                    .label("fullos を開く (Alt+F)")
                                     .on_click(
                                         cx.listener(|this, _, _window, cx| this.launch_fullos(cx)),
                                     ),
