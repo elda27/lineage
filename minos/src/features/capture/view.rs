@@ -3,7 +3,7 @@
 //! docs/ui.md「minos」1.〜3. に対応する。
 //!
 //! - テキストボックス1つと送信ボタン1つ
-//! - Ctrl+Enter で送信
+//! - Ctrl+Enter で送信、Ctrl+Shift+Enter でウィンドウを残して連続送信
 //! - `#` でメタ情報を補完（候補は過去の入力から学習したもの）
 //! - 確定したメタ情報は、自動付与ぶんも含めて入力欄の中にバッジとして並ぶ。
 //!   本文が空のときの Backspace で末尾から外せる
@@ -78,7 +78,7 @@ impl CaptureView {
             let mut state = InputState::new(window, cx)
                 .multi_line(true)
                 .auto_grow(3, 10)
-                .placeholder("いま気づいたことを書く（#でメタ情報、Ctrl+Enter で送信）");
+                .placeholder("いま気づいたことを書く（Ctrl+Enter で送信、Shift 追加で連続入力）");
             state.lsp.completion_provider = Some(Rc::new(MetaCompletionProvider::new(
                 services.clone(),
             )));
@@ -88,8 +88,12 @@ impl CaptureView {
         let subscriptions = vec![cx.subscribe_in(&input, window, {
             move |this, _, event: &InputEvent, window, cx| {
                 // Ctrl+Enter（gpui-component では secondary-enter）で送信する。
+                // Shift も押されていたら、保存後もウィンドウを残して次の入力を受け付ける。
                 match event {
-                    InputEvent::PressEnter { secondary: true, .. } => this.submit(window, cx),
+                    InputEvent::PressEnter {
+                        secondary: true,
+                        shift,
+                    } => this.submit(*shift, window, cx),
                     InputEvent::Change => this.promote_completed_tags(window, cx),
                     _ => {}
                 }
@@ -197,7 +201,7 @@ impl CaptureView {
     }
 
     /// 入力を確定して保存する。
-    fn submit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    fn submit(&mut self, keep_open: bool, window: &mut Window, cx: &mut Context<Self>) {
         let body = self.input.read(cx).value().to_string();
         if body.trim().is_empty() {
             self.status = Some(Status::Error("本文が空です".into()));
@@ -225,8 +229,15 @@ impl CaptureView {
                     title: output.title.into(),
                     seq: output.seq,
                 });
+                if keep_open {
+                    // 同じアプリについて続けて記録できるよう、文脈と自動タグを引き継ぐ。
+                    self.refresh_auto_tags();
+                    self.input.update(cx, |input, cx| input.focus(window, cx));
+                }
                 cx.notify();
-                self.hide_after_delay(cx);
+                if !keep_open {
+                    self.hide_after_delay(cx);
+                }
             }
             Err(error) => {
                 self.status = Some(Status::Error(format!("保存できません: {error}").into()));
@@ -488,7 +499,7 @@ impl Render for CaptureView {
                                     ),
                             )
                             .child(Button::new("submit").primary().label("送信").on_click(
-                                cx.listener(|this, _, window, cx| this.submit(window, cx)),
+                                cx.listener(|this, _, window, cx| this.submit(false, window, cx)),
                             )),
                     ),
             )
