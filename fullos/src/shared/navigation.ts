@@ -3,4 +3,4 @@
  *
  * 画面（features/*）とシェル（app/App.tsx）の両方が使うので、どちらにも寄せずここに置く。
  */
-export type Page = "home" | "search" | "automation" | "settings";
+export type Page = "home" | "search" | "tags" | "automation" | "settings";

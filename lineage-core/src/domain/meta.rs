@@ -17,6 +17,8 @@ pub enum MetaSource {
     Auto,
     /// ユーザが本文に `#` で書いた。
     User,
+    /// 明示操作により観測 metadata から可視タグへ昇格した。
+    Derived,
 }
 
 impl MetaSource {
@@ -24,6 +26,7 @@ impl MetaSource {
         match self {
             MetaSource::Auto => "auto",
             MetaSource::User => "user",
+            MetaSource::Derived => "derived",
         }
     }
 
@@ -34,6 +37,7 @@ impl MetaSource {
     pub fn parse(value: &str) -> Self {
         match value {
             "auto" => MetaSource::Auto,
+            "derived" => MetaSource::Derived,
             _ => MetaSource::User,
         }
     }
@@ -63,6 +67,22 @@ impl MetaAssignment {
             source: MetaSource::User,
         }
     }
+
+    pub fn derived(label: impl Into<String>, value: impl Into<String>) -> Self {
+        Self {
+            label: label.into(),
+            value: Some(value.into()),
+            source: MetaSource::Derived,
+        }
+    }
+}
+
+/// Machine-observed context. Metadata is stored separately and never learned as a tag.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DocumentMetadata {
+    pub key: String,
+    pub value: String,
+    pub source: String,
 }
 
 /// 学習済みのメタ情報タグ。補完候補の母集合になる。
@@ -197,12 +217,14 @@ pub fn rank_candidates(tags: &[MetaTag], query: &str, limit: usize) -> Vec<MetaS
 
     let mut matched: Vec<MetaSuggestion> = tags
         .iter()
-        .filter_map(|tag| match_kind(tag, &needle).map(|matched| MetaSuggestion {
-            label: tag.label.clone(),
-            shorthand: tag.shorthand.clone(),
-            usage_count: tag.usage_count,
-            matched,
-        }))
+        .filter_map(|tag| {
+            match_kind(tag, &needle).map(|matched| MetaSuggestion {
+                label: tag.label.clone(),
+                shorthand: tag.shorthand.clone(),
+                usage_count: tag.usage_count,
+                matched,
+            })
+        })
         .collect();
 
     matched.sort_by(|a, b| {
@@ -316,7 +338,10 @@ mod tests {
 
         let (rest, tags) = split_completed_tags("SOXL #銘柄=SOXL 損切り");
         assert_eq!(rest, "SOXL 損切り");
-        assert_eq!(tags, vec![MetaAssignment::user("銘柄", Some("SOXL".into()))]);
+        assert_eq!(
+            tags,
+            vec![MetaAssignment::user("銘柄", Some("SOXL".into()))]
+        );
 
         // 改行も終端になる。
         let (rest, tags) = split_completed_tags("#タスク\n");

@@ -7,7 +7,7 @@ use anyhow::{Result, bail};
 
 use crate::domain::capture::{CaptureContext, DocumentAsset};
 use crate::domain::lineage::{LineageInput, LineageLedger, relation};
-use crate::domain::meta::{MetaAssignment, MetaSource, parse_meta_tags};
+use crate::domain::meta::{MetaAssignment, MetaSource, auto_label, parse_meta_tags};
 use crate::domain::ports::{CaptureStore, CaptureTx};
 use crate::domain::shared::{Clock, Hasher, IdGenerator};
 
@@ -74,7 +74,15 @@ impl<'a> CaptureMemo<'a> {
 
         let now = self.clock.now_rfc3339();
         let document = DocumentAsset::memo(self.ids.new_id(), &input.workspace_id, body, &now);
-        let metas = collect_metas(&document.body_text, &input.metas);
+        let mut metas = collect_metas(&document.body_text, &input.metas);
+        // `#app` is an explicit request to promote observed application metadata.
+        if let Some(context) = input.context.as_ref()
+            && metas.iter().any(|m| m.label == auto_label::APP)
+        {
+            if let Some(app) = metas.iter_mut().find(|m| m.label == auto_label::APP) {
+                *app = MetaAssignment::derived(auto_label::APP, &context.process_name);
+            }
+        }
 
         // 自動付与の app が取れていれば、その文脈を lineage の source にする。
         let (source_kind, source_id) = match input.context.as_ref() {
@@ -99,14 +107,16 @@ impl<'a> CaptureMemo<'a> {
             tx.ensure_workspace(&input.workspace_id, &input.workspace_name, &now)?;
             tx.insert_document(&document)?;
 
+            if let Some(context) = input.context.as_ref() {
+                for metadata in context.metadata() {
+                    tx.insert_document_metadata(&self.ids.new_id(), &document.id, &metadata, &now)?;
+                }
+            }
+
             for meta in &metas {
+                // Observed metadata never reaches the completion registry.
+                tx.learn_meta_tag(&self.ids.new_id(), &input.workspace_id, &meta.label, &now)?;
                 tx.insert_document_meta(&self.ids.new_id(), &document.id, meta, &now)?;
-                tx.learn_meta_tag(
-                    &self.ids.new_id(),
-                    &input.workspace_id,
-                    &meta.label,
-                    &now,
-                )?;
             }
 
             let prev = tx.last_link(&input.workspace_id)?;
@@ -137,7 +147,10 @@ impl<'a> CaptureMemo<'a> {
 fn collect_metas(body: &str, confirmed: &[MetaAssignment]) -> Vec<MetaAssignment> {
     let mut metas = confirmed.to_vec();
     for meta in parse_meta_tags(body) {
-        match metas.iter_mut().find(|existing| existing.label == meta.label) {
+        match metas
+            .iter_mut()
+            .find(|existing| existing.label == meta.label)
+        {
             Some(existing) if existing.source == MetaSource::Auto => *existing = meta,
             Some(_) => {}
             None => metas.push(meta),
@@ -173,10 +186,7 @@ mod tests {
 
         /// 入力欄と同じように、文脈から作った自動メタ情報をバッジとして渡す。
         fn capture(&self, body: &str, context: Option<CaptureContext>) -> CaptureMemoOutput {
-            let metas = context
-                .as_ref()
-                .map(CaptureContext::auto_metas)
-                .unwrap_or_default();
+            let metas = Vec::new();
             CaptureMemo::new(&self.db, &self.clock, &self.ids, &self.hasher)
                 .execute(CaptureMemoInput {
                     workspace_id: "ws".into(),
@@ -200,7 +210,7 @@ mod tests {
         let out = f.capture("SOXL 損切り #投資", Some(context));
 
         assert_eq!(out.title, "SOXL 損切り #投資");
-        assert_eq!(out.meta_labels, vec!["app", "window", "投資"]);
+        assert_eq!(out.meta_labels, vec!["投資"]);
         assert_eq!(out.seq, 1);
     }
 
@@ -261,18 +271,19 @@ mod tests {
     #[test]
     fn rejects_an_empty_body() {
         let f = Fixture::new();
-        let result = CaptureMemo::new(&f.db, &f.clock, &f.ids, &f.hasher).execute(CaptureMemoInput {
-            workspace_id: "ws".into(),
-            workspace_name: "minos".into(),
-            body: "   \n ".into(),
-            metas: Vec::new(),
-            context: None,
-        });
+        let result =
+            CaptureMemo::new(&f.db, &f.clock, &f.ids, &f.hasher).execute(CaptureMemoInput {
+                workspace_id: "ws".into(),
+                workspace_name: "minos".into(),
+                body: "   \n ".into(),
+                metas: Vec::new(),
+                context: None,
+            });
         assert!(result.is_err());
     }
 
     #[test]
-    fn a_user_tag_wins_over_the_auto_value_of_the_same_label() {
+    fn explicit_app_promotes_observed_application_as_derived_tag() {
         let f = Fixture::new();
         let context = CaptureContext {
             process_name: "chrome.exe".into(),
@@ -280,11 +291,11 @@ mod tests {
         };
         let out = f.capture("#app=手入力 のメモ", Some(context));
 
-        assert_eq!(out.meta_labels, vec!["app", "window"]);
+        assert_eq!(out.meta_labels, vec!["app"]);
         let metas = f.db.metas_of_document(&out.document_id).unwrap();
         let app = metas.iter().find(|m| m.0 == "app").unwrap();
-        assert_eq!(app.1.as_deref(), Some("手入力"));
-        assert_eq!(app.2, "user");
+        assert_eq!(app.1.as_deref(), Some("chrome.exe"));
+        assert_eq!(app.2, "derived");
     }
 
     #[test]

@@ -16,6 +16,7 @@ export function Sidebar({
   const items: { page: Page; label: string; icon: IconName }[] = [
     { page: "home", label: "ホーム", icon: "home" },
     { page: "search", label: "検索", icon: "search" },
+    { page: "tags", label: "タグ", icon: "tag" },
     { page: "automation", label: "自動化", icon: "sparkles" },
     { page: "settings", label: "設定", icon: "settings" },
   ];

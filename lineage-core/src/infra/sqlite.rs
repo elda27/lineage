@@ -15,11 +15,12 @@ use crate::domain::automation::{
 };
 use crate::domain::capture::{DOCUMENT_TYPE_MEMO, DocumentAsset};
 use crate::domain::lineage::LineageRecord;
-use crate::domain::meta::{MetaAssignment, MetaSource, MetaTag};
+use crate::domain::meta::{DocumentMetadata, MetaAssignment, MetaSource, MetaTag};
 use crate::domain::ports::{
-    AutomationRuleQuery, AutomationRunStore, AutomationStore, AutomationTx, CaptureStore, CaptureTx,
-    LedgerTx, LineageQuery, MemoQuery, MetaTagQuery, SettingsRepository,
+    AutomationRuleQuery, AutomationRunStore, AutomationStore, AutomationTx, CaptureStore,
+    CaptureTx, LedgerTx, LineageQuery, MemoQuery, MetaTagQuery, SettingsRepository, TagRepository,
 };
+use crate::domain::tag::{AutomationBinding, TagDefinition, TagKind, ViewBinding};
 
 /// ローカルとクラウドで共通のスキーマ。
 const SCHEMA_SQL: &str = include_str!("../../../db/schema.sql");
@@ -40,8 +41,9 @@ impl Database {
     pub fn open_default() -> Result<Self> {
         let path = Self::default_path()?;
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)
-                .with_context(|| format!("データディレクトリを作成できません: {}", parent.display()))?;
+            std::fs::create_dir_all(parent).with_context(|| {
+                format!("データディレクトリを作成できません: {}", parent.display())
+            })?;
         }
         Self::open(&path)
     }
@@ -196,7 +198,43 @@ impl CaptureTx for SqliteCaptureTx<'_> {
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)
              ON CONFLICT(document_id, label)
              DO UPDATE SET value = excluded.value, source = excluded.source",
-            params![id, document_id, meta.label, meta.value, meta.source.as_str(), now],
+            params![
+                id,
+                document_id,
+                meta.label,
+                meta.value,
+                meta.source.as_str(),
+                now
+            ],
+        )?;
+        self.tx.execute(
+            "INSERT OR IGNORE INTO tag_assignments(id,document_id,tag_id,value,source,created_at)
+             SELECT ?1,?2,id,?3,?4,?5 FROM tag_definitions
+             WHERE display_name=?6 AND deleted_at IS NULL ORDER BY managed DESC LIMIT 1",
+            params![
+                id,
+                document_id,
+                meta.value,
+                meta.source.as_str(),
+                now,
+                meta.label
+            ],
+        )?;
+        Ok(())
+    }
+
+    fn insert_document_metadata(
+        &mut self,
+        id: &str,
+        document_id: &str,
+        metadata: &DocumentMetadata,
+        now: &str,
+    ) -> Result<()> {
+        self.tx.execute(
+            "INSERT INTO document_metadata (id, document_id, key, value, source, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+             ON CONFLICT(document_id, key) DO UPDATE SET value=excluded.value, source=excluded.source",
+            params![id, document_id, metadata.key, metadata.value, metadata.source, now],
         )?;
         Ok(())
     }
@@ -214,6 +252,12 @@ impl CaptureTx for SqliteCaptureTx<'_> {
              VALUES (?1, ?2, ?3, NULL, 1, ?4, ?4)
              ON CONFLICT(workspace_id, label)
              DO UPDATE SET usage_count = usage_count + 1, last_used_at = excluded.last_used_at",
+            params![id, workspace_id, label, now],
+        )?;
+        self.tx.execute(
+            "INSERT INTO tag_definitions(id,workspace_id,kind,display_name,shorthand,enabled,managed,usage_count,last_used_at,deleted_at,created_at,updated_at)
+             VALUES(?1,?2,'user',?3,NULL,1,0,1,?4,NULL,?4,?4)
+             ON CONFLICT(workspace_id,display_name) DO UPDATE SET usage_count=usage_count+1,last_used_at=excluded.last_used_at,updated_at=excluded.updated_at",
             params![id, workspace_id, label, now],
         )?;
         Ok(())
@@ -239,8 +283,9 @@ impl MetaTagQuery for Database {
     fn all(&self, workspace_id: &str, limit: usize) -> Result<Vec<MetaTag>> {
         let conn = self.conn.borrow();
         let mut statement = conn.prepare(
-            "SELECT id, workspace_id, label, shorthand, usage_count, last_used_at
-             FROM meta_tags WHERE workspace_id = ?1
+            "SELECT id, workspace_id, display_name, shorthand, usage_count, last_used_at
+             FROM tag_definitions WHERE (workspace_id = ?1 OR workspace_id='local')
+               AND kind != 'metadata' AND enabled=1 AND deleted_at IS NULL
              ORDER BY usage_count DESC, last_used_at DESC LIMIT ?2",
         )?;
         let tags = statement
@@ -257,6 +302,111 @@ impl MetaTagQuery for Database {
             .collect::<rusqlite::Result<Vec<_>>>()?;
         Ok(tags)
     }
+}
+
+impl TagRepository for Database {
+    fn list(&self, workspace_id: &str, include_deleted: bool) -> Result<Vec<TagDefinition>> {
+        let conn = self.conn.borrow();
+        let mut stmt = conn.prepare(
+            "SELECT t.id,t.workspace_id,t.kind,t.display_name,t.shorthand,t.usage_count,t.last_used_at,
+                    t.enabled,t.managed,t.deleted_at,v.view_id,a.recipe_name,a.ownership,a.enabled
+             FROM tag_definitions t LEFT JOIN view_bindings v ON v.tag_id=t.id
+             LEFT JOIN automation_bindings a ON a.tag_id=t.id
+             WHERE (t.workspace_id=?1 OR t.workspace_id='local') AND (?2 OR t.deleted_at IS NULL)
+             ORDER BY t.usage_count DESC,t.display_name")?;
+        Ok(stmt
+            .query_map(
+                params![workspace_id, include_deleted],
+                row_to_tag_definition,
+            )?
+            .collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    fn get(&self, id: &str) -> Result<Option<TagDefinition>> {
+        let conn = self.conn.borrow();
+        Ok(conn.query_row(
+            "SELECT t.id,t.workspace_id,t.kind,t.display_name,t.shorthand,t.usage_count,t.last_used_at,
+                    t.enabled,t.managed,t.deleted_at,v.view_id,a.recipe_name,a.ownership,a.enabled
+             FROM tag_definitions t LEFT JOIN view_bindings v ON v.tag_id=t.id
+             LEFT JOIN automation_bindings a ON a.tag_id=t.id WHERE t.id=?1",
+            params![id], row_to_tag_definition).optional()?)
+    }
+
+    fn rename(&self, id: &str, name: &str, shorthand: Option<&str>, now: &str) -> Result<()> {
+        self.conn.borrow().execute("UPDATE tag_definitions SET display_name=?2,shorthand=?3,updated_at=?4 WHERE id=?1 AND kind='user'", params![id,name,shorthand,now])?;
+        Ok(())
+    }
+    fn soft_delete(&self, id: &str, now: &str) -> Result<()> {
+        self.conn.borrow().execute("UPDATE tag_definitions SET deleted_at=?2,enabled=0,updated_at=?2 WHERE id=?1 AND kind='user'", params![id,now])?;
+        Ok(())
+    }
+    fn set_enabled(&self, id: &str, enabled: bool, now: &str) -> Result<()> {
+        self.conn.borrow().execute(
+            "UPDATE tag_definitions SET enabled=?2,updated_at=?3 WHERE id=?1",
+            params![id, enabled, now],
+        )?;
+        Ok(())
+    }
+    fn set_view_binding(
+        &self,
+        binding: Option<&ViewBinding>,
+        tag_id: &str,
+        now: &str,
+    ) -> Result<()> {
+        let conn = self.conn.borrow();
+        if let Some(b) = binding {
+            conn.execute("INSERT INTO view_bindings(tag_id,view_id,updated_at) VALUES(?1,?2,?3) ON CONFLICT(tag_id) DO UPDATE SET view_id=excluded.view_id,updated_at=excluded.updated_at",params![tag_id,b.view_id,now])?;
+        } else {
+            conn.execute("DELETE FROM view_bindings WHERE tag_id=?1", params![tag_id])?;
+        }
+        Ok(())
+    }
+    fn set_automation_binding(
+        &self,
+        binding: Option<&AutomationBinding>,
+        tag_id: &str,
+        now: &str,
+    ) -> Result<()> {
+        let conn = self.conn.borrow();
+        if let Some(b) = binding {
+            let ownership = if b.managed { "managed" } else { "external" };
+            conn.execute("INSERT INTO automation_bindings(tag_id,recipe_name,ownership,enabled,updated_at) VALUES(?1,?2,?3,?4,?5) ON CONFLICT(tag_id) DO UPDATE SET recipe_name=excluded.recipe_name,ownership=excluded.ownership,enabled=excluded.enabled,updated_at=excluded.updated_at",params![tag_id,b.recipe_name,ownership,b.enabled,now])?;
+        } else {
+            conn.execute(
+                "DELETE FROM automation_bindings WHERE tag_id=?1",
+                params![tag_id],
+            )?;
+        }
+        Ok(())
+    }
+}
+
+fn row_to_tag_definition(row: &Row<'_>) -> rusqlite::Result<TagDefinition> {
+    let tag_id: String = row.get(0)?;
+    let view: Option<String> = row.get(10)?;
+    let recipe: Option<String> = row.get(11)?;
+    Ok(TagDefinition {
+        id: tag_id.clone(),
+        workspace_id: row.get(1)?,
+        kind: TagKind::parse(&row.get::<_, String>(2)?),
+        display_name: row.get(3)?,
+        shorthand: row.get(4)?,
+        usage_count: row.get(5)?,
+        last_used_at: row.get(6)?,
+        enabled: row.get(7)?,
+        managed: row.get(8)?,
+        deleted_at: row.get(9)?,
+        view: view.map(|view_id| ViewBinding {
+            tag_id: tag_id.clone(),
+            view_id,
+        }),
+        automation: recipe.map(|recipe_name| AutomationBinding {
+            tag_id,
+            recipe_name,
+            managed: row.get::<_, String>(12).unwrap_or_default() == "managed",
+            enabled: row.get(13).unwrap_or(true),
+        }),
+    })
 }
 
 impl SettingsRepository for Database {
@@ -741,5 +891,38 @@ mod tests {
         });
 
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn rename_keeps_stable_id_and_soft_delete_keeps_assignments() {
+        let db = Database::open_in_memory().unwrap();
+        db.conn.borrow().execute(
+            "INSERT INTO tag_definitions VALUES('tag-1','ws','user','old',NULL,1,0,1,NULL,NULL,'now','now')", [],
+        ).unwrap();
+        db.conn
+            .borrow()
+            .execute(
+                "INSERT INTO tag_assignments VALUES('a-1','doc-1','tag-1',NULL,'user','now')",
+                [],
+            )
+            .unwrap();
+
+        TagRepository::rename(&db, "tag-1", "new", Some("n"), "later").unwrap();
+        let renamed = TagRepository::get(&db, "tag-1").unwrap().unwrap();
+        assert_eq!(renamed.id, "tag-1");
+        assert_eq!(renamed.display_name, "new");
+
+        TagRepository::soft_delete(&db, "tag-1", "deleted").unwrap();
+        assert!(TagRepository::list(&db, "ws", false).unwrap().is_empty());
+        let provenance: String = db
+            .conn
+            .borrow()
+            .query_row(
+                "SELECT tag_id FROM tag_assignments WHERE id='a-1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(provenance, "tag-1");
     }
 }

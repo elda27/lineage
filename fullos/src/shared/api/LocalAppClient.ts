@@ -35,6 +35,7 @@ import { SqliteMemoRepository } from "@core/infra/persistence/sqlite/SqliteMemoR
 import { SqliteMemoStateRepository } from "@core/infra/persistence/sqlite/SqliteMemoStateRepository";
 import { SqliteMetaTagRepository } from "@core/infra/persistence/sqlite/SqliteMetaTagRepository";
 import type { ApplicationPort } from "./ApplicationPort";
+import { SqliteTagRepository } from "@core/infra/persistence/sqlite/SqliteTagRepository";
 
 /** minos がローカルで使う workspace（minos/src/app.rs の DEFAULT_WORKSPACE_ID）。 */
 export const DEFAULT_WORKSPACE_ID = "local";
@@ -66,10 +67,14 @@ export async function createLocalAppClient(): Promise<ApplicationPort> {
   const automationRules = new SqliteAutomationRuleRepository(db);
   const automationRuns = new SqliteAutomationRunRepository(db);
   const settings = new SqliteSettingsRepository(db);
+  const tags = new SqliteTagRepository(db);
   // skill の配置はホーム以下のファイル操作なので、DB ではなく Rust 側に委ねる。
   const agentSkills = new TauriAgentSkillStore(invoke);
 
   return {
+    listTags: () => tags.all(DEFAULT_WORKSPACE_ID),
+    updateTag: (id, value) => tags.update(id, value),
+    deleteTag: (id) => tags.remove(id),
     listMemos: (limit = DEFAULT_MEMO_LIMIT) =>
       new ListMemos(memos, memoStates).execute(DEFAULT_WORKSPACE_ID, limit),
 
