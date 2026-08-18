@@ -6,6 +6,7 @@ import { absoluteDateTime } from "@/shared/format";
 import { Icon, primaryButton, quietButton, secondaryButton } from "@/shared/ui/kit";
 import { can, type Memo, type MemoActions } from "../service/memoView";
 import { MetaChips } from "./MetaChips";
+import { useMetaCompletion } from "./MetaCompletion";
 
 export function MemoDetail({
   memo,
@@ -21,6 +22,7 @@ export function MemoDetail({
   const [editing, setEditing] = useState(false),
     [title, setTitle] = useState(memo.title),
     [body, setBody] = useState(memo.body);
+  const bodyCompletion = useMetaCompletion({ value: body, onChange: setBody });
   const save = (e: FormEvent) => {
     e.preventDefault();
     update({ ...memo, title, body, preview: bodyPreview(body) });
@@ -87,11 +89,15 @@ export function MemoDetail({
               value={title}
               onChange={(e) => setTitle(e.target.value)}
             />
-            <textarea
-              className="min-h-[150px] resize-y rounded-lg border border-[#deded8] p-3 text-xs leading-[1.8] outline-none"
-              value={body}
-              onChange={(e) => setBody(e.target.value)}
-            />
+            <div className="relative">
+              <textarea
+                {...bodyCompletion.inputProps}
+                aria-label="本文（# でメタ情報を補完）"
+                className="min-h-[150px] w-full resize-y rounded-lg border border-[#deded8] p-3 text-xs leading-[1.8] outline-none"
+                placeholder="# でメタ情報を補完"
+              />
+              {bodyCompletion.suggestionsElement}
+            </div>
             <div className="flex justify-end gap-2">
               <button type="button" className={secondaryButton} onClick={() => setEditing(false)}>
                 キャンセル
