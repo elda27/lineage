@@ -54,7 +54,7 @@ export function SearchPage({
         </p>
       </div>
       <SearchBox large className="max-w-none" value={query} onChange={setQuery} />
-      <div className="mt-[22px] mb-[13px] flex items-center gap-[7px]">
+      <div className="mt-[22px] mb-[13px] flex flex-wrap items-center gap-[7px]">
         {FILTERS.map((f) => (
           <button
             className={`cursor-pointer rounded-[7px] border border-transparent px-[13px] py-1.5 text-[11px] ${filter === f ? "bg-[#ecebe7] font-semibold" : "bg-transparent"}`}
@@ -69,7 +69,9 @@ export function SearchPage({
             <MetaChips metas={parsed.metas} />
           </span>
         )}
-        <span className="ml-auto text-[10px] text-[#999a94]">{results.length} 件</span>
+        <span className="ml-auto whitespace-nowrap text-[10px] text-[#999a94]">
+          {results.length} 件
+        </span>
       </div>
       <MemoList
         memos={results}

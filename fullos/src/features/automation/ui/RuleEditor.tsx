@@ -125,12 +125,12 @@ export function RuleEditor({
 
   return (
     <div
-      className="fixed inset-0 z-30 flex animate-[fade_0.18s] items-center justify-center bg-[#27272245] p-6"
+      className="fixed inset-0 z-30 flex animate-[fade_0.18s] items-center justify-center bg-[#27272245] p-3 sm:p-6"
       onMouseDown={(event) => event.target === event.currentTarget && onClose()}
     >
       <form
         onSubmit={submit}
-        className="flex max-h-full w-[min(680px,100%)] flex-col overflow-auto rounded-[14px] bg-white p-7 shadow-[0_20px_60px_#0003]"
+        className="flex max-h-full w-[min(680px,100%)] flex-col overflow-auto rounded-[14px] bg-white p-5 shadow-[0_20px_60px_#0003] sm:p-7"
       >
         <h2 className="mb-1 font-serif text-[22px] font-normal">
           {rule ? "ルールを編集" : "新しいルール"}
@@ -182,7 +182,7 @@ export function RuleEditor({
             </p>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className={field}>
               <label className={label} htmlFor="rule-backend">
                 実行方法
@@ -231,7 +231,7 @@ export function RuleEditor({
           )}
 
           {draft.backend === "api_key" && (
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className={field}>
                 <label className={label} htmlFor="rule-model">
                   モデル（省略可）

@@ -25,9 +25,9 @@ export const cardSurface = "overflow-hidden rounded-[11px] border border-line bg
 export const subheading = "mb-[5px] text-[15px] font-bold";
 export const serifTitle = "font-serif font-normal tracking-[-0.025em]";
 /** 1050px 以下では左右の余白を詰める（旧 @media(max-width:1050px) 相当）。 */
-export const heroPadding = "px-[5vw] min-[1051px]:px-[8vw]";
-export const pagePadding = "px-[45px] min-[1051px]:px-[clamp(50px,8vw,110px)]";
-export const standardPage = `min-h-screen mx-auto max-w-[1180px] py-16 ${pagePadding}`;
+export const heroPadding = "px-5 sm:px-[5vw] min-[1051px]:px-[8vw]";
+export const pagePadding = "px-5 sm:px-[45px] min-[1051px]:px-[clamp(50px,8vw,110px)]";
+export const standardPage = `min-h-screen mx-auto max-w-[1180px] py-9 sm:py-16 ${pagePadding}`;
 export const toggleTrack = "h-5 w-9 rounded-xl border-0 p-0.5 cursor-pointer";
 export const toggleKnob =
   "block h-4 w-4 rounded-full bg-white shadow-[0_1px_2px_#0003] transition duration-200";
