@@ -10,6 +10,7 @@ import type { Memo } from "@core/domain/memo/Memo";
 import type { AgentSkillPreference } from "@core/domain/skill/AgentSkill";
 import type { AgentSkillSync } from "@core/app/skill/SyncAgentSkills";
 import type { StorageUsage } from "@core/domain/storage/StorageUsage";
+import type { TagDefinition, TagUpdate } from "@core/domain/tag/TagDefinition";
 
 /**
  * UI が依存する唯一のインターフェース。
@@ -18,6 +19,9 @@ import type { StorageUsage } from "@core/domain/storage/StorageUsage";
  * UI はどちらに繋がっているかを知らない（docs/concept/MINIMAL_ARCHITECTURE.md 1.）。
  */
 export interface ApplicationPort {
+  listTags(): Promise<TagDefinition[]>;
+  updateTag(id: string, value: TagUpdate): Promise<void>;
+  deleteTag(id: string): Promise<void>;
   /**
    * 記録を取得する。
    *

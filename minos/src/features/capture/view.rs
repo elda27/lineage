@@ -24,7 +24,7 @@ use gpui_component::input::{Backspace, Escape, Input, InputEvent, InputState};
 use gpui_component::{ActiveTheme, Sizable, StyledExt, h_flex, v_flex};
 
 use lineage_core::domain::capture::CaptureContext;
-use lineage_core::domain::meta::{MetaAssignment, MetaSource, auto_label, split_completed_tags};
+use lineage_core::domain::meta::{MetaAssignment, MetaSource, split_completed_tags};
 
 use crate::app::Services;
 use crate::features::capture::meta_completion::MetaCompletionProvider;
@@ -44,11 +44,7 @@ const KEY_CONTEXT: &str = "Minos";
 
 /// minos の入力画面で使うキーボードショートカットを登録する。
 pub fn init(cx: &mut App) {
-    cx.bind_keys([KeyBinding::new(
-        "alt-f",
-        LaunchFullos,
-        Some(KEY_CONTEXT),
-    )]);
+    cx.bind_keys([KeyBinding::new("alt-f", LaunchFullos, Some(KEY_CONTEXT))]);
 }
 
 /// 選択テキストの取り込み方。
@@ -93,9 +89,8 @@ impl CaptureView {
                 .multi_line(true)
                 .auto_grow(3, 10)
                 .placeholder("いま気づいたことを書く（Ctrl+Enter で送信、Shift 追加で連続入力）");
-            state.lsp.completion_provider = Some(Rc::new(MetaCompletionProvider::new(
-                services.clone(),
-            )));
+            state.lsp.completion_provider =
+                Some(Rc::new(MetaCompletionProvider::new(services.clone())));
             state
         });
 
@@ -136,7 +131,6 @@ impl CaptureView {
     ) {
         if let Some(app) = context {
             self.context = Some(app);
-            self.refresh_auto_tags();
         }
         self.input.update(cx, |input, cx| input.focus(window, cx));
         cx.notify();
@@ -150,19 +144,8 @@ impl CaptureView {
     ///
     /// 前回の呼び出しぶんは入れ替える。同じラベルをユーザが自分で書いていたら、そちらを残す。
     fn refresh_auto_tags(&mut self) {
+        // Application/window context is metadata, not an editable or completable tag.
         self.tags.retain(|tag| tag.source != MetaSource::Auto);
-
-        let Some(context) = self.capture_context() else {
-            return;
-        };
-        let mut auto: Vec<MetaAssignment> = context
-            .auto_metas()
-            .into_iter()
-            .filter(|meta| !self.tags.iter().any(|tag| tag.label == meta.label))
-            .collect();
-
-        auto.append(&mut self.tags);
-        self.tags = auto;
     }
 
     /// 文脈を手放す。バッジも一緒に消して、記録の内容と表示がずれないようにする。
@@ -207,8 +190,9 @@ impl CaptureView {
             }
             Err(error) => {
                 log::warn!("fullos を起動できません: {error:#}");
-                self.status =
-                    Some(Status::Error(format!("fullos を起動できません: {error}").into()));
+                self.status = Some(Status::Error(
+                    format!("fullos を起動できません: {error}").into(),
+                ));
             }
         }
         cx.notify();
@@ -223,13 +207,9 @@ impl CaptureView {
             return;
         }
 
-        // `#app` バッジを外したなら、その文脈は lineage の source にもしない。
-        let capture_context = self
-            .tags
-            .iter()
-            .any(|tag| tag.source == MetaSource::Auto && tag.label == auto_label::APP)
-            .then(|| self.capture_context())
-            .flatten();
+        // Context is always persisted as metadata. CaptureMemo promotes it only when
+        // the user explicitly entered `#app`.
+        let capture_context = self.capture_context();
 
         match self
             .services
@@ -304,25 +284,28 @@ impl CaptureView {
     }
 
     fn render_tags(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        h_flex().gap_1().flex_wrap().children(self.tags.iter().map(|tag| {
-            let text = match &tag.value {
-                Some(value) => format!("#{}={value}", tag.label),
-                None => format!("#{}", tag.label),
-            };
-            div()
-                .px_2()
-                .py_0p5()
-                .rounded_md()
-                .text_xs()
-                .bg(cx.theme().secondary)
-                // 自動付与は利用者が書いたものではないので、色を落として区別する。
-                .when(tag.source == MetaSource::Auto, |this| {
-                    this.text_color(cx.theme().muted_foreground)
-                })
-                .max_w(px(320.))
-                .truncate()
-                .child(text)
-        }))
+        h_flex()
+            .gap_1()
+            .flex_wrap()
+            .children(self.tags.iter().map(|tag| {
+                let text = match &tag.value {
+                    Some(value) => format!("#{}={value}", tag.label),
+                    None => format!("#{}", tag.label),
+                };
+                div()
+                    .px_2()
+                    .py_0p5()
+                    .rounded_md()
+                    .text_xs()
+                    .bg(cx.theme().secondary)
+                    // 自動付与は利用者が書いたものではないので、色を落として区別する。
+                    .when(tag.source == MetaSource::Auto, |this| {
+                        this.text_color(cx.theme().muted_foreground)
+                    })
+                    .max_w(px(320.))
+                    .truncate()
+                    .child(text)
+            }))
     }
 
     /// 入力欄。確定済みのメタ情報は、本文と左端を揃えて同じ枠の中に並べる。
@@ -474,9 +457,7 @@ impl Render for CaptureView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         v_flex()
             .key_context(KEY_CONTEXT)
-            .on_action(cx.listener(|this, _: &LaunchFullos, _window, cx| {
-                this.launch_fullos(cx)
-            }))
+            .on_action(cx.listener(|this, _: &LaunchFullos, _window, cx| this.launch_fullos(cx)))
             // 入力欄が処理しなかった Esc だけがここに届く（補完中は補完が閉じるだけ）。
             .on_action(cx.listener(|this, _: &Escape, _window, cx| this.dismiss(cx)))
             .capture_action(cx.listener(Self::on_backspace))

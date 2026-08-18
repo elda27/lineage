@@ -10,3 +10,4 @@ pub mod meta;
 pub mod ports;
 pub mod settings;
 pub mod shared;
+pub mod tag;

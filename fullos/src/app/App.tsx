@@ -19,6 +19,7 @@ import { useRecordedMemos } from "@/features/memo/service/useRecordedMemos";
 import { SettingsPage } from "@/features/settings/ui/SettingsPage";
 import { AgentSkillDialog } from "@/features/skill/ui/AgentSkillDialog";
 import { UpdateBanner } from "@/features/updater/ui/UpdateBanner";
+import { TagExplorerPage } from "@/features/tag-explorer/ui/TagExplorerPage";
 import { useAccount } from "@/features/workspace/service/useAccount";
 import type { Page } from "@/shared/navigation";
 import { Sidebar } from "./Sidebar";
@@ -80,6 +81,7 @@ export default function App() {
           />
         )}{" "}
         {page === "automation" && <AutomationPage />} {page === "settings" && <SettingsPage />}
+        {page === "tags" && <TagExplorerPage />}
       </main>
       {detail && (
         <MemoDetail

@@ -6,11 +6,38 @@
 use anyhow::Result;
 
 use crate::domain::automation::{
-    AutomationRule, AutomationRun, InferenceRequest, InferenceOutcome, MemoSnapshot,
+    AutomationRule, AutomationRun, InferenceOutcome, InferenceRequest, MemoSnapshot,
 };
 use crate::domain::capture::DocumentAsset;
 use crate::domain::lineage::LineageRecord;
-use crate::domain::meta::{MetaAssignment, MetaTag};
+use crate::domain::meta::{DocumentMetadata, MetaAssignment, MetaTag};
+use crate::domain::tag::{AutomationBinding, TagDefinition, ViewBinding};
+
+pub trait TagRepository {
+    fn list(&self, workspace_id: &str, include_deleted: bool) -> Result<Vec<TagDefinition>>;
+    fn get(&self, id: &str) -> Result<Option<TagDefinition>>;
+    fn rename(
+        &self,
+        id: &str,
+        display_name: &str,
+        shorthand: Option<&str>,
+        now: &str,
+    ) -> Result<()>;
+    fn soft_delete(&self, id: &str, now: &str) -> Result<()>;
+    fn set_enabled(&self, id: &str, enabled: bool, now: &str) -> Result<()>;
+    fn set_view_binding(
+        &self,
+        binding: Option<&ViewBinding>,
+        tag_id: &str,
+        now: &str,
+    ) -> Result<()>;
+    fn set_automation_binding(
+        &self,
+        binding: Option<&AutomationBinding>,
+        tag_id: &str,
+        now: &str,
+    ) -> Result<()>;
+}
 
 /// document と link を同一トランザクションで確定させるための最小の口。
 ///
@@ -47,10 +74,22 @@ pub trait CaptureTx: LedgerTx {
         meta: &MetaAssignment,
         now: &str,
     ) -> Result<()>;
+    fn insert_document_metadata(
+        &mut self,
+        id: &str,
+        document_id: &str,
+        metadata: &DocumentMetadata,
+        now: &str,
+    ) -> Result<()>;
 
     /// メタ情報タグの学習。未登録なら作成し、使用回数と最終使用日時を更新する。
-    fn learn_meta_tag(&mut self, id: &str, workspace_id: &str, label: &str, now: &str)
-    -> Result<()>;
+    fn learn_meta_tag(
+        &mut self,
+        id: &str,
+        workspace_id: &str,
+        label: &str,
+        now: &str,
+    ) -> Result<()>;
 }
 
 /// 自動化の結果を確定させるトランザクション境界。

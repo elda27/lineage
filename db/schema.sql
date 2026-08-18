@@ -97,6 +97,78 @@ CREATE TABLE IF NOT EXISTS document_meta (
   UNIQUE(document_id, label)
 );
 
+-- Stable tag registry.  `id` is the identity used by bindings and provenance;
+-- display_name may therefore be renamed without rewriting historical assignments.
+CREATE TABLE IF NOT EXISTS tag_definitions (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('user', 'builtin', 'metadata')),
+  display_name TEXT NOT NULL,
+  shorthand TEXT,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  managed INTEGER NOT NULL DEFAULT 0,
+  usage_count INTEGER NOT NULL DEFAULT 0,
+  last_used_at TEXT,
+  deleted_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(workspace_id, display_name)
+);
+
+-- A visible tag assignment always points at the stable registry identity.
+CREATE TABLE IF NOT EXISTS tag_assignments (
+  id TEXT PRIMARY KEY,
+  document_id TEXT NOT NULL,
+  tag_id TEXT NOT NULL,
+  value TEXT,
+  source TEXT NOT NULL CHECK (source IN ('user', 'derived', 'imported')),
+  created_at TEXT NOT NULL,
+  UNIQUE(document_id, tag_id)
+);
+
+-- Machine-observed context is not a tag and is deliberately excluded from tag completion.
+CREATE TABLE IF NOT EXISTS document_metadata (
+  id TEXT PRIMARY KEY,
+  document_id TEXT NOT NULL,
+  key TEXT NOT NULL,
+  value TEXT NOT NULL,
+  source TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE(document_id, key)
+);
+
+CREATE TABLE IF NOT EXISTS view_bindings (
+  tag_id TEXT PRIMARY KEY,
+  view_id TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS automation_bindings (
+  tag_id TEXT PRIMARY KEY,
+  recipe_name TEXT NOT NULL,
+  ownership TEXT NOT NULL CHECK (ownership IN ('managed', 'external')),
+  enabled INTEGER NOT NULL DEFAULT 1,
+  updated_at TEXT NOT NULL
+);
+
+-- Compatibility migration: old learned tags retain their IDs and counters.
+INSERT OR IGNORE INTO tag_definitions
+  (id, workspace_id, kind, display_name, shorthand, enabled, managed,
+   usage_count, last_used_at, deleted_at, created_at, updated_at)
+SELECT id, workspace_id, 'user', label, shorthand, 1, 0, usage_count,
+       last_used_at, NULL, created_at, COALESCE(last_used_at, created_at)
+FROM meta_tags;
+
+-- Built-ins use workspace-independent stable IDs.  The app binding, rather than
+-- label matching in UI code, selects task behavior and application promotion.
+INSERT OR IGNORE INTO tag_definitions VALUES
+  ('builtin:task', 'local', 'builtin', 'task', 'task', 1, 1, 0, NULL, NULL,
+   '1970-01-01T00:00:00Z', '1970-01-01T00:00:00Z'),
+  ('builtin:app', 'local', 'builtin', 'app', 'app', 1, 1, 0, NULL, NULL,
+   '1970-01-01T00:00:00Z', '1970-01-01T00:00:00Z');
+INSERT OR IGNORE INTO view_bindings(tag_id, view_id, updated_at)
+VALUES ('builtin:task', 'task-list', '1970-01-01T00:00:00Z');
+
 -- 組み込みタグ（docs/ui.md「組み込みタグ」）の機能が付ける、記録ごとの状態。
 --
 -- 「タスクの完了」「アーカイブ」「ゴミ箱」は利用者が打ったメタ情報ではなく操作の結果
@@ -163,6 +235,14 @@ CREATE TABLE IF NOT EXISTS automation_runs (
   rule_id TEXT NOT NULL,
   source_document_id TEXT NOT NULL,
   result_document_id TEXT,
+  tag_id TEXT,
+  recipe_name TEXT,
+  recipe_ownership TEXT,
+  processing_fingerprint TEXT,
+  input_fingerprint TEXT,
+  execution_key TEXT,
+  output_fingerprint TEXT,
+  forced INTEGER NOT NULL DEFAULT 0,
   -- 'running' / 'succeeded' / 'failed' / 'refused'
   status TEXT NOT NULL,
   backend_kind TEXT NOT NULL,
@@ -171,13 +251,21 @@ CREATE TABLE IF NOT EXISTS automation_runs (
   finished_at TEXT
 );
 
+-- Added separately so new databases have recipe/execution provenance. Existing
+-- installations are upgraded by lineage-core before this schema is applied.
+
 CREATE INDEX IF NOT EXISTS idx_links_workspace_seq ON links(workspace_id, seq);
 CREATE INDEX IF NOT EXISTS idx_links_target ON links(target_kind, target_id);
 CREATE INDEX IF NOT EXISTS idx_documents_workspace_created ON documents(workspace_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_meta_tags_workspace ON meta_tags(workspace_id, usage_count DESC);
 CREATE INDEX IF NOT EXISTS idx_document_meta_document ON document_meta(document_id);
 CREATE INDEX IF NOT EXISTS idx_document_meta_label ON document_meta(label);
+CREATE INDEX IF NOT EXISTS idx_tag_definitions_workspace ON tag_definitions(workspace_id, kind, enabled, deleted_at);
+CREATE INDEX IF NOT EXISTS idx_tag_assignments_document ON tag_assignments(document_id);
+CREATE INDEX IF NOT EXISTS idx_tag_assignments_tag ON tag_assignments(tag_id);
+CREATE INDEX IF NOT EXISTS idx_document_metadata_document ON document_metadata(document_id);
 CREATE INDEX IF NOT EXISTS idx_document_states_workspace ON document_states(workspace_id);
 CREATE INDEX IF NOT EXISTS idx_automation_rules_workspace ON automation_rules(workspace_id, enabled);
 CREATE INDEX IF NOT EXISTS idx_automation_runs_rule ON automation_runs(rule_id, source_document_id);
 CREATE INDEX IF NOT EXISTS idx_automation_runs_started ON automation_runs(workspace_id, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_automation_runs_execution ON automation_runs(execution_key, status);
