@@ -121,6 +121,23 @@ mod ledger_sql {
         Ok(())
     }
 
+    pub fn update_document(tx: &rusqlite::Transaction<'_>, document: &DocumentAsset) -> Result<()> {
+        let changed = tx.execute(
+            "UPDATE documents SET title=?2, body_text=?3, updated_at=?4
+             WHERE id=?1 AND workspace_id=?5 AND document_type=?6",
+            params![
+                document.id,
+                document.title,
+                document.body_text,
+                document.updated_at,
+                document.workspace_id,
+                DOCUMENT_TYPE_MEMO
+            ],
+        )?;
+        anyhow::ensure!(changed == 1, "追記先のメモが見つかりません");
+        Ok(())
+    }
+
     pub fn last_link(
         tx: &rusqlite::Transaction<'_>,
         workspace_id: &str,
@@ -167,6 +184,10 @@ impl LedgerTx for SqliteCaptureTx<'_> {
         ledger_sql::insert_document(self.tx, document)
     }
 
+    fn update_document(&mut self, document: &DocumentAsset) -> Result<()> {
+        ledger_sql::update_document(self.tx, document)
+    }
+
     fn last_link(&mut self, workspace_id: &str) -> Result<Option<LineageRecord>> {
         ledger_sql::last_link(self.tx, workspace_id)
     }
@@ -182,6 +203,18 @@ impl CaptureTx for SqliteCaptureTx<'_> {
             "INSERT OR IGNORE INTO workspaces (id, name, owner_user_id, created_at)
              VALUES (?1, ?2, NULL, ?3)",
             params![id, name, now],
+        )?;
+        Ok(())
+    }
+
+    fn clear_document_metas(&mut self, document_id: &str) -> Result<()> {
+        self.tx.execute(
+            "DELETE FROM document_meta WHERE document_id=?1",
+            params![document_id],
+        )?;
+        self.tx.execute(
+            "DELETE FROM tag_assignments WHERE document_id=?1",
+            params![document_id],
         )?;
         Ok(())
     }
@@ -455,6 +488,10 @@ impl LedgerTx for SqliteAutomationTx<'_> {
         ledger_sql::insert_document(self.tx, document)
     }
 
+    fn update_document(&mut self, document: &DocumentAsset) -> Result<()> {
+        ledger_sql::update_document(self.tx, document)
+    }
+
     fn last_link(&mut self, workspace_id: &str) -> Result<Option<LineageRecord>> {
         ledger_sql::last_link(self.tx, workspace_id)
     }
@@ -648,6 +685,42 @@ impl MemoQuery for Database {
             body_text: body_text.unwrap_or_default(),
             created_at,
         }))
+    }
+
+    fn recent(&self, workspace_id: &str, limit: usize) -> Result<Vec<MemoSnapshot>> {
+        let conn = self.conn.borrow();
+        let mut statement = conn.prepare(
+            "SELECT id, title, body_text, created_at FROM documents d
+             WHERE workspace_id=?1 AND document_type=?2
+               AND NOT EXISTS (SELECT 1 FROM document_states s
+                 WHERE s.document_id=d.id AND s.deleted_at IS NOT NULL)
+             ORDER BY updated_at DESC LIMIT ?3",
+        )?;
+        let rows = statement
+            .query_map(
+                params![workspace_id, DOCUMENT_TYPE_MEMO, limit as i64],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                        row.get::<_, String>(3)?,
+                    ))
+                },
+            )?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        drop(statement);
+        rows.into_iter()
+            .map(|(id, title, body, created_at)| {
+                Ok(MemoSnapshot {
+                    metas: metas_of(&conn, &id)?,
+                    id,
+                    title,
+                    body_text: body.unwrap_or_default(),
+                    created_at,
+                })
+            })
+            .collect()
     }
 }
 

@@ -46,6 +46,7 @@ pub trait TagRepository {
 /// 共通の親トレイトとして切り出してある。
 pub trait LedgerTx {
     fn insert_document(&mut self, document: &DocumentAsset) -> Result<()>;
+    fn update_document(&mut self, document: &DocumentAsset) -> Result<()>;
 
     /// 鎖の末尾（`seq` 最大）を返す。
     fn last_link(&mut self, workspace_id: &str) -> Result<Option<LineageRecord>>;
@@ -66,6 +67,7 @@ pub trait CaptureStore {
 pub trait CaptureTx: LedgerTx {
     /// 未作成なら workspace を作る。
     fn ensure_workspace(&mut self, id: &str, name: &str, now: &str) -> Result<()>;
+    fn clear_document_metas(&mut self, document_id: &str) -> Result<()>;
 
     fn insert_document_meta(
         &mut self,
@@ -145,6 +147,7 @@ pub trait AutomationRunStore {
 /// 記録1件の読み出し（自動化の入力になる）。
 pub trait MemoQuery {
     fn get(&self, workspace_id: &str, document_id: &str) -> Result<Option<MemoSnapshot>>;
+    fn recent(&self, workspace_id: &str, limit: usize) -> Result<Vec<MemoSnapshot>>;
 }
 
 /// API キーなどの秘密の取り出し。

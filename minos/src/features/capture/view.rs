@@ -23,11 +23,12 @@ use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::input::{Backspace, Escape, Input, InputEvent, InputState};
 use gpui_component::{ActiveTheme, Sizable, StyledExt, h_flex, v_flex};
 
+use lineage_core::domain::automation::MemoSnapshot;
 use lineage_core::domain::capture::CaptureContext;
 use lineage_core::domain::meta::{MetaAssignment, MetaSource, split_completed_tags};
 
 use crate::app::Services;
-use crate::features::capture::meta_completion::MetaCompletionProvider;
+use crate::features::capture::meta_completion::{MetaCompletionProvider, selected_memo_id};
 use crate::features::window::AppWindow;
 use crate::infra::system::foreground;
 use crate::infra::system::{ForegroundApp, SelectionCapture, launcher};
@@ -71,6 +72,8 @@ pub struct CaptureView {
     ///
     /// 自動付与（直前のアプリ）とユーザ入力の両方が並ぶ。ここから消えたものは記録にも残らない。
     tags: Vec<MetaAssignment>,
+    /// 選択中なら、次の送信はこのノートを更新する。
+    editing_document_id: Option<String>,
     /// 直前にフォアグラウンドだったアプリ（Alt+Space を押した瞬間に観測したもの）。
     context: Option<ForegroundApp>,
     status: Option<Status>,
@@ -114,6 +117,7 @@ impl CaptureView {
             app_window,
             input,
             tags: Vec::new(),
+            editing_document_id: None,
             context: None,
             status: None,
             _subscriptions: subscriptions,
@@ -211,14 +215,17 @@ impl CaptureView {
         // the user explicitly entered `#app`.
         let capture_context = self.capture_context();
 
-        match self
-            .services
-            .capture(body, self.tags.clone(), capture_context)
-        {
+        match self.services.capture(
+            body,
+            self.tags.clone(),
+            capture_context,
+            self.editing_document_id.clone(),
+        ) {
             Ok(output) => {
                 self.input
                     .update(cx, |input, cx| input.set_value("", window, cx));
                 self.tags.clear();
+                self.editing_document_id = None;
                 self.status = Some(Status::Saved {
                     title: output.title.into(),
                     seq: output.seq,
@@ -245,6 +252,26 @@ impl CaptureView {
     /// 打ち終える前のタグは本文に残す（[`split_completed_tags`] 参照）。
     fn promote_completed_tags(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let value = self.input.read(cx).value().to_string();
+        if let Some(document_id) = selected_memo_id(&value) {
+            match self.services.memo(document_id) {
+                Ok(Some(memo)) => self.restore_memo(memo, window, cx),
+                Ok(None) => {
+                    self.input
+                        .update(cx, |input, cx| input.set_value("", window, cx));
+                    self.status = Some(Status::Error("選択したノートが見つかりません".into()));
+                    cx.notify();
+                }
+                Err(error) => {
+                    self.input
+                        .update(cx, |input, cx| input.set_value("", window, cx));
+                    self.status = Some(Status::Error(
+                        format!("過去のノートを取得できません: {error}").into(),
+                    ));
+                    cx.notify();
+                }
+            }
+            return;
+        }
         let (body, promoted) = split_completed_tags(&value);
         if promoted.is_empty() {
             return;
@@ -263,6 +290,19 @@ impl CaptureView {
 
         self.input
             .update(cx, |input, cx| input.set_value(body, window, cx));
+        cx.notify();
+    }
+
+    fn restore_memo(&mut self, memo: MemoSnapshot, window: &mut Window, cx: &mut Context<Self>) {
+        self.editing_document_id = Some(memo.id);
+        self.tags = memo.metas;
+        self.input.update(cx, |input, cx| {
+            input.set_value(memo.body_text, window, cx);
+            input.focus(window, cx);
+        });
+        self.status = Some(Status::Info(
+            "過去のノートを復元しました。続けて入力できます".into(),
+        ));
         cx.notify();
     }
 

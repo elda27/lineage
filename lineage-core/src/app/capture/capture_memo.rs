@@ -24,6 +24,8 @@ pub struct CaptureMemoInput {
     pub workspace_id: String,
     pub workspace_name: String,
     pub body: String,
+    /// Some の場合は新規作成せず、選択した過去メモへ追記する。
+    pub document_id: Option<String>,
     /// 入力欄のバッジとして確定済みのメタ情報（自動付与ぶんも含む）。
     ///
     /// 自動付与を並べるのは入力欄の役目なので、ここに載っていない自動メタ情報は
@@ -73,7 +75,15 @@ impl<'a> CaptureMemo<'a> {
         }
 
         let now = self.clock.now_rfc3339();
-        let document = DocumentAsset::memo(self.ids.new_id(), &input.workspace_id, body, &now);
+        let document = DocumentAsset::memo(
+            input
+                .document_id
+                .clone()
+                .unwrap_or_else(|| self.ids.new_id()),
+            &input.workspace_id,
+            body,
+            &now,
+        );
         let mut metas = collect_metas(&document.body_text, &input.metas);
         // `#app` is an explicit request to promote observed application metadata.
         if let Some(context) = input.context.as_ref()
@@ -105,7 +115,12 @@ impl<'a> CaptureMemo<'a> {
 
         self.store.transact(&mut |tx: &mut dyn CaptureTx| {
             tx.ensure_workspace(&input.workspace_id, &input.workspace_name, &now)?;
-            tx.insert_document(&document)?;
+            if input.document_id.is_some() {
+                tx.update_document(&document)?;
+                tx.clear_document_metas(&document.id)?;
+            } else {
+                tx.insert_document(&document)?;
+            }
 
             if let Some(context) = input.context.as_ref() {
                 for metadata in context.metadata() {
@@ -163,6 +178,7 @@ fn collect_metas(body: &str, confirmed: &[MetaAssignment]) -> Vec<MetaAssignment
 mod tests {
     use super::*;
     use crate::domain::lineage::{LineageLedger, VerifyResult};
+    use crate::domain::ports::MemoQuery;
     use crate::infra::clock::{FixedClock, SequentialIds};
     use crate::infra::crypto::Sha256Hasher;
     use crate::infra::sqlite::Database;
@@ -192,6 +208,7 @@ mod tests {
                     workspace_id: "ws".into(),
                     workspace_name: "minos".into(),
                     body: body.into(),
+                    document_id: None,
                     metas,
                     context,
                 })
@@ -222,6 +239,7 @@ mod tests {
                 workspace_id: "ws".into(),
                 workspace_name: "minos".into(),
                 body: "アプリ情報を外したメモ".into(),
+                document_id: None,
                 metas: Vec::new(),
                 context: Some(CaptureContext {
                     process_name: "chrome.exe".into(),
@@ -241,6 +259,7 @@ mod tests {
                 workspace_id: "ws".into(),
                 workspace_name: "minos".into(),
                 body: "バッジ付きのメモ".into(),
+                document_id: None,
                 metas: vec![MetaAssignment::user("タスク", None)],
                 context: None,
             })
@@ -276,6 +295,7 @@ mod tests {
                 workspace_id: "ws".into(),
                 workspace_name: "minos".into(),
                 body: "   \n ".into(),
+                document_id: None,
                 metas: Vec::new(),
                 context: None,
             });
@@ -309,5 +329,26 @@ mod tests {
         let task = tags.iter().find(|t| t.label == "タスク").unwrap();
         assert_eq!(task.usage_count, 2);
         assert_eq!(task.last_used_at.as_deref(), Some("2026-08-08T12:00:00Z"));
+    }
+
+    #[test]
+    fn updates_an_existing_memo_with_restored_tags() {
+        let f = Fixture::new();
+        let first = f.capture("最初の行", None);
+        CaptureMemo::new(&f.db, &f.clock, &f.ids, &f.hasher)
+            .execute(CaptureMemoInput {
+                workspace_id: "ws".into(),
+                workspace_name: "minos".into(),
+                body: "最初の行\n追記した行".into(),
+                document_id: Some(first.document_id.clone()),
+                metas: vec![MetaAssignment::user("継続", None)],
+                context: None,
+            })
+            .unwrap();
+
+        let restored = f.db.get("ws", &first.document_id).unwrap().unwrap();
+        assert_eq!(restored.body_text, "最初の行\n追記した行");
+        assert_eq!(restored.metas, vec![MetaAssignment::user("継続", None)]);
+        assert_eq!(f.db.recent("ws", 8).unwrap()[0].id, first.document_id);
     }
 }
