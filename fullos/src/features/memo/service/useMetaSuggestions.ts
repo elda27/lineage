@@ -4,7 +4,7 @@ import type { MetaSuggestion } from "@core/domain/meta/MetaTag";
 import { appClient } from "@/shared/api/appClient";
 
 /** 一度に出す補完候補の上限（minos の MAX_SUGGESTIONS と揃える）。 */
-const MAX_SUGGESTIONS = 8;
+const MAX_SUGGESTIONS = 12;
 
 /**
  * `#` トークンを打っている間だけ、学習済みメタ情報の候補を読む。
