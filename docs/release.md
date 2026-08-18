@@ -169,8 +169,16 @@ main が更新される（= PR が merge される、または直接 push され
   nightly リリースにも `latest.json` は付くが、これを見にいくのは
   エンドポイントを nightly に向けた場合だけ。
   workflow は成果物を上げたあとにも prerelease フラグを付け直して、この前提を守る。
-- nightly を入れた環境は、アプリ内 updater が正式リリース（`0.0.7-42` に対する `0.0.7`）を
-  新しい版として提示する。開発版から正式版へは自動で戻れる、という挙動になる。
+- nightly を入れた環境でも updater のエンドポイントは正式版と同じままなので、起動時・
+  6 時間ごと・オンライン復帰時の確認で参照するのは正式リリースだけである。たとえば正式版
+  `0.0.6` を基にした nightly は `0.0.7-42` になるため、正式版がまだ `0.0.6` の間は
+  updater から更新は提示されない。次の正式版 `0.0.7` が公開されると semver 上では
+  `0.0.7-42 < 0.0.7` なので、その時点で正式版への更新が提示される。
+- 同じ `nightly` リリースが新しいビルドへ載せ替わっても、インストール済み nightly は
+  nightly の `latest.json` を参照しないため、**nightly から次の nightly へはアプリ内で
+  自動更新されない**。新しい nightly を使うには GitHub Release から MSI を再取得して
+  上書きインストールする。nightly 間の自動更新を提供する場合は、nightly ビルドだけ
+  updater のエンドポイントを `/releases/download/nightly/latest.json` に切り替える必要がある。
 
 バージョンのパッチを 1 つ上げているのは semver の順序のため。prerelease は同じ数値の
 正式版より古い扱いなので、`VERSION` が `0.0.6` のまま `0.0.6-42` にすると、
@@ -224,7 +232,8 @@ just msi
 
 - エンドポイント: `https://github.com/elda27/lineage/releases/latest/download/latest.json`
   （常に最新リリースへ解決される GitHub の固定 URL）
-- 起動時に一度だけ黙ってチェックし、更新があれば画面上部にバーを出す
+- 起動時と、その後 6 時間ごと（オフラインから復帰した時は即時）に黙ってチェックし、
+  更新があれば画面上部にバーを出す
   （[fullos/src/features/updater/service/useUpdater.ts](../fullos/src/features/updater/service/useUpdater.ts)）。
 - ユーザーが「更新する」を押すと MSI を取得・検証・適用し、`relaunch()` で再起動する。
 - ブラウザでの `pnpm dev` には Tauri のランタイムが無いためチェックは失敗するが、
