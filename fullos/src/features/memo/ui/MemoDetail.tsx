@@ -31,7 +31,7 @@ export function MemoDetail({
       className="fixed inset-0 z-20 flex animate-[fade_0.18s] justify-end bg-[#27272245]"
       onMouseDown={(e) => e.target === e.currentTarget && close()}
     >
-      <aside className="h-full w-[min(540px,50vw)] animate-[slide_0.25s_ease] bg-white px-[38px] py-[25px] shadow-[-10px_0_40px_#0002]">
+      <aside className="h-full w-full overflow-y-auto animate-[slide_0.25s_ease] bg-white px-5 py-[25px] shadow-[-10px_0_40px_#0002] sm:w-[min(540px,80vw)] sm:px-[38px] lg:w-[min(540px,50vw)]">
         <header className="mb-[55px] flex items-center justify-between">
           <button
             className="cursor-pointer border-0 bg-transparent text-xs text-[#777972]"

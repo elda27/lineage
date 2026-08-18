@@ -40,7 +40,7 @@ export function HomePage({
     "flex cursor-pointer items-center gap-3 rounded-[10px] border border-line bg-white p-[15px] text-left hover:-translate-y-px hover:border-[#cfcec7]";
   return (
     <div className="min-h-screen">
-      <header className="flex h-[66px] items-center gap-2 border-b border-line px-[38px]">
+      <header className="flex h-[66px] items-center gap-2 border-b border-line px-5 sm:px-[38px]">
         <div className="flex-1" />
         <button
           className={quietButton}
@@ -54,7 +54,7 @@ export function HomePage({
           新しいメモ
         </button>
       </header>
-      <div className={`mx-auto max-w-[1100px] pt-[68px] pb-[52px] ${heroPadding}`}>
+      <div className={`mx-auto max-w-[1100px] pt-10 pb-9 sm:pt-[68px] sm:pb-[52px] ${heroPadding}`}>
         <p className={eyebrow}>{longDate(new Date())}</p>
         <p className="mb-[34px] text-muted">思考の続きを、ここから始めましょう。</p>
         <SearchBox large value={query} onChange={setQuery} onSubmit={() => setPage("search")} />
@@ -85,7 +85,7 @@ export function HomePage({
             hint: "minos を Alt + Space で呼び出して、最初のメモを残しましょう。",
           }}
         />
-        <div className="mt-[15px] grid grid-cols-2 gap-[13px]">
+        <div className="mt-[15px] grid grid-cols-1 gap-[13px] sm:grid-cols-2">
           <button className={quickCard} onClick={() => setPage("search")}>
             <span className="grid h-9 w-9 place-items-center rounded-[9px] bg-[#eeecf7] text-[#7568b8]">
               <Icon name="inbox" />

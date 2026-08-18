@@ -51,11 +51,11 @@ export default function App() {
       archived: false,
     });
   return (
-    <div className="flex min-h-screen">
+    <div className="min-h-screen">
       <UpdateBanner />
       <AgentSkillDialog />
       <Sidebar page={page} setPage={setPage} account={account} />
-      <main className="ml-[226px] min-h-screen w-[calc(100%-226px)]">
+      <main className="min-h-screen min-w-0 pb-[76px] lg:ml-[226px] lg:w-[calc(100%-226px)] lg:pb-0">
         {page === "home" && (
           <HomePage
             memos={memos}
@@ -97,7 +97,7 @@ export default function App() {
       {/* 状態の保存に失敗したときだけ出る。押し間違いではなく DB 側の事情なので、
           何をすれば直るかが分かる文言をそのまま見せる。 */}
       {error && (
-        <div className="fixed bottom-5 left-1/2 z-30 flex max-w-[560px] -translate-x-1/2 items-center gap-3 rounded-[10px] border border-[#e0c9c9] bg-white px-4 py-3 text-[12px] text-[#8a4a4a] shadow-[0_8px_24px_#2f302920]">
+        <div className="fixed right-4 bottom-[84px] left-4 z-30 flex items-center gap-3 rounded-[10px] border border-[#e0c9c9] bg-white px-4 py-3 text-[12px] text-[#8a4a4a] shadow-[0_8px_24px_#2f302920] sm:right-auto sm:left-1/2 sm:w-[min(560px,calc(100vw-32px))] sm:-translate-x-1/2 lg:bottom-5">
           <span className="flex-1">{error}</span>
           <button
             className="cursor-pointer border-0 bg-transparent text-[11px] text-[#777972]"

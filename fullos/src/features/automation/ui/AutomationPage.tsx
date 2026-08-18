@@ -51,7 +51,7 @@ export function AutomationPage() {
 
   return (
     <div className={standardPage}>
-      <div className="mb-8 flex items-end justify-between">
+      <div className="mb-8 flex flex-col items-start gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className={eyebrow}>WORKFLOWS</p>
           <h1 className={`${serifTitle} mb-[9px] text-[34px]`}>自動化</h1>
@@ -63,7 +63,7 @@ export function AutomationPage() {
         </button>
       </div>
 
-      <div className="mb-[35px] flex items-center gap-5 rounded-[14px] bg-[#37353c] px-7 py-[27px] text-white shadow-[0_8px_30px_#34303916]">
+      <div className="mb-[35px] flex items-start gap-4 rounded-[14px] bg-[#37353c] px-5 py-6 text-white shadow-[0_8px_30px_#34303916] sm:items-center sm:gap-5 sm:px-7 sm:py-[27px]">
         <span className="grid h-12 w-12 place-items-center rounded-xl bg-[#ffffff12] text-[#c8c0f1]">
           <Icon name="sparkles" size={26} />
         </span>
