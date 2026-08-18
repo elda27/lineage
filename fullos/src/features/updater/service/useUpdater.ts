@@ -19,10 +19,15 @@ export type UpdateStatus =
 
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
+// アプリを起動し続ける利用者にも、再起動を待たず GitHub Release を届ける。
+const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
+
 export function useUpdater() {
   const [status, setStatus] = useState<UpdateStatus>({ kind: "idle" });
   // downloadAndInstall はチェック時に得た Update をそのまま使う必要がある。
   const pending = useRef<Update | null>(null);
+  const checking = useRef(false);
+  const installing = useRef(false);
 
   /**
    * 更新の有無を問い合わせる。
@@ -31,7 +36,9 @@ export function useUpdater() {
    * (ブラウザでの vite dev) での失敗をユーザーに見せない。
    */
   const checkForUpdate = useCallback(async (silent = false) => {
-    setStatus({ kind: "checking" });
+    if (checking.current || installing.current) return;
+    checking.current = true;
+    if (!silent) setStatus({ kind: "checking" });
     try {
       const update = await check();
       pending.current = update;
@@ -46,14 +53,17 @@ export function useUpdater() {
       });
     } catch (error) {
       console.error("update check failed", error);
-      setStatus(silent ? { kind: "idle" } : { kind: "error", message: messageOf(error) });
+      if (!silent) setStatus({ kind: "error", message: messageOf(error) });
+    } finally {
+      checking.current = false;
     }
   }, []);
 
   /** ダウンロードしてインストールし、完了後にアプリを再起動する。 */
   const installUpdate = useCallback(async () => {
     const update = pending.current;
-    if (!update) return;
+    if (!update || installing.current) return;
+    installing.current = true;
 
     const version = update.version;
     setStatus({ kind: "downloading", version, percent: null });
@@ -87,17 +97,31 @@ export function useUpdater() {
     } catch (error) {
       console.error("update install failed", error);
       setStatus({ kind: "error", message: messageOf(error) });
+    } finally {
+      installing.current = false;
     }
   }, []);
 
   const dismiss = useCallback(() => setStatus({ kind: "idle" }), []);
 
   // 起動時に一度だけ黙って確認する。StrictMode の二重実行は ref で防ぐ。
+  // その後も定期的に確認し、オフラインから戻った時にはすぐ再確認する。
   const checkedOnMount = useRef(false);
   useEffect(() => {
     if (checkedOnMount.current) return;
     checkedOnMount.current = true;
     void checkForUpdate(true);
+
+    const interval = window.setInterval(() => {
+      void checkForUpdate(true);
+    }, UPDATE_CHECK_INTERVAL_MS);
+    const checkWhenOnline = () => void checkForUpdate(true);
+    window.addEventListener("online", checkWhenOnline);
+
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("online", checkWhenOnline);
+    };
   }, [checkForUpdate]);
 
   return { status, checkForUpdate, installUpdate, dismiss };
