@@ -6,7 +6,7 @@
 //! - Ctrl+Enter で送信、Ctrl+Shift+Enter でウィンドウを残して連続送信
 //! - `#` でメタ情報を補完（候補は過去の入力から学習したもの）
 //! - 確定したメタ情報は、自動付与ぶんも含めて入力欄の中にバッジとして並ぶ。
-//!   本文が空のときの Backspace で末尾から外せる
+//!   バッジの ×、または本文が空のときの Backspace で外せる
 //! - 直前のアプリ情報は自動メタ情報として付き、そのアプリの選択テキストも取り込める
 //!   （自動で取り込むかはトレイメニューの設定で切り替える）
 //! - fullos をここから起動できる（トレイメニューの「fullos を起動」と同じ）
@@ -287,14 +287,18 @@ impl CaptureView {
         h_flex()
             .gap_1()
             .flex_wrap()
-            .children(self.tags.iter().map(|tag| {
+            .children(self.tags.iter().enumerate().map(|(index, tag)| {
                 let text = match &tag.value {
                     Some(value) => format!("#{}={value}", tag.label),
                     None => format!("#{}", tag.label),
                 };
-                div()
+                let label = tag.label.clone();
+
+                h_flex()
+                    .id(("remove-tag", index))
                     .px_2()
                     .py_0p5()
+                    .gap_1()
                     .rounded_md()
                     .text_xs()
                     .bg(cx.theme().secondary)
@@ -303,8 +307,19 @@ impl CaptureView {
                         this.text_color(cx.theme().muted_foreground)
                     })
                     .max_w(px(320.))
-                    .truncate()
-                    .child(text)
+                    .child(div().min_w_0().truncate().child(text))
+                    .child(
+                        div()
+                            .flex_none()
+                            .cursor_pointer()
+                            .text_color(cx.theme().muted_foreground)
+                            .hover(|style| style.text_color(cx.theme().foreground))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.tags.retain(|tag| tag.label != label);
+                                cx.notify();
+                            }))
+                            .child("×"),
+                    )
             }))
     }
 
