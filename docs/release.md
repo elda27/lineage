@@ -228,16 +228,15 @@ just msi
 
 秘密鍵を失うと、既に配布済みのアプリは以後の更新を検証できなくなる。鍵は必ず保管すること。
 
-## 自動更新の動作
+## アプリ内更新の動作
 
 - エンドポイント: `https://github.com/elda27/lineage/releases/latest/download/latest.json`
   （常に最新リリースへ解決される GitHub の固定 URL）
-- 起動時と、その後 6 時間ごと（オフラインから復帰した時は即時）に黙ってチェックし、
-  更新があれば画面上部にバーを出す
+- GitHub への定期的なアクセスは行わない。ユーザーが「更新を確認する」を押した時だけ
+  更新をチェックし、更新があれば画面上部にバーを出す
   （[fullos/src/features/updater/service/useUpdater.ts](../fullos/src/features/updater/service/useUpdater.ts)）。
 - ユーザーが「更新する」を押すと MSI を取得・検証・適用し、`relaunch()` で再起動する。
-- ブラウザでの `pnpm dev` には Tauri のランタイムが無いためチェックは失敗するが、
-  起動時チェックは `silent` なので UI には出ない（コンソールにのみ記録）。
+- ブラウザでの `pnpm dev` には Tauri のランタイムが無いため、更新確認は失敗する。
 
 ## ローカルでのパッケージング
 

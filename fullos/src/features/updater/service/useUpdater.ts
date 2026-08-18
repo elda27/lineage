@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 
@@ -19,9 +19,6 @@ export type UpdateStatus =
 
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
-// アプリを起動し続ける利用者にも、再起動を待たず GitHub Release を届ける。
-const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
-
 export function useUpdater() {
   const [status, setStatus] = useState<UpdateStatus>({ kind: "idle" });
   // downloadAndInstall はチェック時に得た Update をそのまま使う必要がある。
@@ -32,8 +29,7 @@ export function useUpdater() {
   /**
    * 更新の有無を問い合わせる。
    *
-   * `silent` は起動直後の自動チェック用。ネットワーク断や Tauri 外
-   * (ブラウザでの vite dev) での失敗をユーザーに見せない。
+   * `silent` は呼び出し元がチェック失敗を UI に表示したくない場合に使う。
    */
   const checkForUpdate = useCallback(async (silent = false) => {
     if (checking.current || installing.current) return;
@@ -103,26 +99,6 @@ export function useUpdater() {
   }, []);
 
   const dismiss = useCallback(() => setStatus({ kind: "idle" }), []);
-
-  // 起動時に一度だけ黙って確認する。StrictMode の二重実行は ref で防ぐ。
-  // その後も定期的に確認し、オフラインから戻った時にはすぐ再確認する。
-  const checkedOnMount = useRef(false);
-  useEffect(() => {
-    if (checkedOnMount.current) return;
-    checkedOnMount.current = true;
-    void checkForUpdate(true);
-
-    const interval = window.setInterval(() => {
-      void checkForUpdate(true);
-    }, UPDATE_CHECK_INTERVAL_MS);
-    const checkWhenOnline = () => void checkForUpdate(true);
-    window.addEventListener("online", checkWhenOnline);
-
-    return () => {
-      window.clearInterval(interval);
-      window.removeEventListener("online", checkWhenOnline);
-    };
-  }, [checkForUpdate]);
 
   return { status, checkForUpdate, installUpdate, dismiss };
 }

@@ -9,18 +9,29 @@ const action =
 const ghostAction =
   "cursor-pointer rounded-md border border-[#b7d9f5] bg-transparent px-3.5 py-1 text-[0.95em] text-[#0f0f0f] hover:bg-[#d8ebfb] dark:border-[#2f4759] dark:text-[#f6f6f6] dark:hover:bg-[#26384a]";
 const notes = "basis-full m-0 text-center whitespace-pre-wrap text-[#3a3a3a] dark:text-[#cfd8e0]";
+const checkButton =
+  "fixed right-4 top-4 z-10 cursor-pointer rounded-md border border-[#b7d9f5] bg-[#e8f4ff] px-3.5 py-1.5 text-[0.9em] text-[#0f0f0f] shadow-sm hover:bg-[#d8ebfb] disabled:cursor-wait disabled:opacity-70 dark:border-[#2f4759] dark:bg-[#1d2a38] dark:text-[#f6f6f6] dark:hover:bg-[#26384a]";
 
 /**
- * 更新がある時だけ出る通知バー。
- * 起動時の自動チェックで何も無ければ何も描画しない。
+ * 手動の更新確認ボタンと、確認結果・更新状況の通知バー。
  */
 export function UpdateBanner() {
   const { status, checkForUpdate, installUpdate, dismiss } = useUpdater();
 
   switch (status.kind) {
     case "idle":
+      return (
+        <button type="button" className={checkButton} onClick={() => void checkForUpdate()}>
+          更新を確認する
+        </button>
+      );
+
     case "checking":
-      return null;
+      return (
+        <button type="button" className={checkButton} disabled>
+          更新を確認中…
+        </button>
+      );
 
     case "up-to-date":
       return (
