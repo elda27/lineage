@@ -99,8 +99,6 @@ impl CaptureView {
 
         let subscriptions = vec![cx.subscribe_in(&input, window, {
             move |this, _, event: &InputEvent, window, cx| {
-                // Ctrl+Enter（gpui-component では secondary-enter）で送信する。
-                // Shift も押されていたら、保存後もウィンドウを残して次の入力を受け付ける。
                 match event {
                     InputEvent::PressEnter {
                         secondary: true,
@@ -124,8 +122,6 @@ impl CaptureView {
         }
     }
 
-    /// Alt+Space が押された瞬間に観測した「直前のアプリ」と、
-    /// そのとき送った Ctrl+C の結果待ちを受け取る。
     pub fn set_context(
         &mut self,
         context: Option<ForegroundApp>,
@@ -144,15 +140,10 @@ impl CaptureView {
         }
     }
 
-    /// 直前のアプリから作った自動メタ情報を、入力欄のバッジの先頭に並べ直す。
-    ///
-    /// 前回の呼び出しぶんは入れ替える。同じラベルをユーザが自分で書いていたら、そちらを残す。
     fn refresh_auto_tags(&mut self) {
-        // Application/window context is metadata, not an editable or completable tag.
         self.tags.retain(|tag| tag.source != MetaSource::Auto);
     }
 
-    /// 文脈を手放す。バッジも一緒に消して、記録の内容と表示がずれないようにする。
     fn clear_context(&mut self) {
         self.context = None;
         self.refresh_auto_tags();
@@ -165,7 +156,6 @@ impl CaptureView {
         })
     }
 
-    /// 検証結果を画面に出す（トレイメニューから呼ばれる）。
     pub fn show_verification(&mut self, cx: &mut Context<Self>) {
         use lineage_core::domain::lineage::VerifyResult;
 
@@ -181,10 +171,6 @@ impl CaptureView {
         cx.notify();
     }
 
-    /// fullos を起動する。
-    ///
-    /// 起動できれば fullos が前面に出るので、minos はタスクトレイに戻る。
-    /// 入力中の本文とバッジはそのまま残し、次の Alt+Space で続きを書けるようにする。
     fn launch_fullos(&mut self, cx: &mut Context<Self>) {
         match launcher::launch_fullos() {
             Ok(path) => {
@@ -202,7 +188,6 @@ impl CaptureView {
         cx.notify();
     }
 
-    /// 入力を確定して保存する。
     fn submit(&mut self, keep_open: bool, window: &mut Window, cx: &mut Context<Self>) {
         let body = self.input.read(cx).value().to_string();
         if body.trim().is_empty() {
@@ -211,8 +196,6 @@ impl CaptureView {
             return;
         }
 
-        // Context is always persisted as metadata. CaptureMemo promotes it only when
-        // the user explicitly entered `#app`.
         let capture_context = self.capture_context();
 
         match self.services.capture(
@@ -231,7 +214,6 @@ impl CaptureView {
                     seq: output.seq,
                 });
                 if keep_open {
-                    // 同じアプリについて続けて記録できるよう、文脈と自動タグを引き継ぐ。
                     self.refresh_auto_tags();
                     self.input.update(cx, |input, cx| input.focus(window, cx));
                 }
@@ -247,9 +229,6 @@ impl CaptureView {
         }
     }
 
-    /// 空白で確定した `#タグ` を本文から取り除き、バッジへ移す。
-    ///
-    /// 打ち終える前のタグは本文に残す（[`split_completed_tags`] 参照）。
     fn promote_completed_tags(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let value = self.input.read(cx).value().to_string();
         if let Some(document_id) = selected_memo_id(&value) {
@@ -279,7 +258,6 @@ impl CaptureView {
 
         for meta in promoted {
             match self.tags.iter().position(|tag| tag.label == meta.label) {
-                // 同じラベルの自動メタ情報は、利用者が書いた値で置き換える。
                 Some(index) if self.tags[index].source == MetaSource::Auto => {
                     self.tags[index] = meta
                 }
@@ -306,10 +284,6 @@ impl CaptureView {
         cx.notify();
     }
 
-    /// 本文が空のときの Backspace で、バッジを末尾から1つ外す。
-    ///
-    /// Backspace は入力欄が action として受け取り、そこで伝播が止まる。
-    /// バッジまで届かせるには、入力欄より先に走る capture フェーズで受ける必要がある。
     fn on_backspace(&mut self, _: &Backspace, window: &mut Window, cx: &mut Context<Self>) {
         if !self.input.read(cx).value().is_empty()
             || !self.input.focus_handle(cx).is_focused(window)
@@ -342,7 +316,6 @@ impl CaptureView {
                     .rounded_md()
                     .text_xs()
                     .bg(cx.theme().secondary)
-                    // 自動付与は利用者が書いたものではないので、色を落として区別する。
                     .when(tag.source == MetaSource::Auto, |this| {
                         this.text_color(cx.theme().muted_foreground)
                     })
@@ -350,6 +323,7 @@ impl CaptureView {
                     .child(div().min_w_0().truncate().child(text))
                     .child(
                         div()
+                            .id(("remove-tag-button", index))
                             .flex_none()
                             .cursor_pointer()
                             .text_color(cx.theme().muted_foreground)
@@ -363,13 +337,11 @@ impl CaptureView {
             }))
     }
 
-    /// 入力欄。確定済みのメタ情報は、本文と左端を揃えて同じ枠の中に並べる。
     fn render_input_box(&self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let focused = self.input.focus_handle(cx).is_focused(window);
 
         v_flex()
             .gap_1()
-            // Input が既定（Size::Medium）で使う内側余白と同じにして、バッジと本文の左端を揃える。
             .px(px(12.))
             .py(px(8.))
             .rounded(cx.theme().radius)
@@ -377,7 +349,6 @@ impl CaptureView {
             .border_color(cx.theme().input)
             .bg(cx.theme().input_background())
             .when(focused, |this| this.focused_border(cx))
-            // 枠の余白やバッジを押しても、1つの入力欄として本文に入れるようにする。
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, _, window, cx| {
@@ -387,11 +358,9 @@ impl CaptureView {
             .when(!self.tags.is_empty(), |this| {
                 this.child(self.render_tags(cx))
             })
-            // 枠は上の v_flex が描くので、入力欄そのものは枠も余白も持たない。
             .child(Input::new(&self.input).appearance(false).px_0().py_0())
     }
 
-    /// 保存の表示を残してからタスクトレイに戻す。
     fn hide_after_delay(&mut self, cx: &mut Context<Self>) {
         let app_window = self.app_window.clone();
         cx.spawn(async move |view, cx| {
@@ -406,7 +375,6 @@ impl CaptureView {
         .detach();
     }
 
-    /// 明示操作での取り込み（自動取り込みが無効なときの手段）。
     fn pull_foreground_text(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(source) = self.context.clone() else {
             self.status = Some(Status::Error("直前のアプリが分かりません".into()));
@@ -417,17 +385,10 @@ impl CaptureView {
         self.pull_selection(Pull::Request { hwnd: source.hwnd }, window, cx);
     }
 
-    /// 直前にフォアグラウンドだったアプリの選択テキストを取り込む。
-    ///
-    /// 選択範囲を読む標準的な方法が無いため、対象アプリへ Ctrl+C を送って
-    /// クリップボード経由で受け取る（クリップボードの内容は上書きされる）。
-    /// 待ち時間の間も入力はできるよう、待つのは非同期タスクに任せる。
     fn pull_selection(&mut self, pull: Pull, window: &mut Window, cx: &mut Context<Self>) {
         let app_window = self.app_window.clone();
 
         cx.spawn_in(window, async move |view, cx| {
-            // 明示操作のときだけ、対象に前面を渡して Ctrl+C を送る。
-            // 自動取り込みではホットキー側が送信済みなので待つだけでよい。
             let (before_sequence, took_foreground) = match pull {
                 Pull::Awaiting(selection) => (selection.before_sequence, false),
                 Pull::Request { hwnd } => {
@@ -443,7 +404,6 @@ impl CaptureView {
                 waited += CLIPBOARD_POLL;
             }
 
-            // 連番が変わらない＝選択が無かった、あるいはコピーできないアプリだった。
             let copied = if foreground::clipboard_sequence() == before_sequence {
                 None
             } else {
@@ -466,7 +426,6 @@ impl CaptureView {
                         });
                         this.status = None;
                     }
-                    // 自動取り込みは利用者が頼んだ操作ではないので、黙って何もしない。
                     _ if !took_foreground => {}
                     _ => {
                         this.status = Some(Status::Error(
@@ -480,7 +439,6 @@ impl CaptureView {
         .detach();
     }
 
-    /// Esc・閉じるボタンでは終了せず、タスクトレイに残る。
     fn dismiss(&mut self, cx: &mut Context<Self>) {
         self.status = None;
         self.clear_context();
@@ -513,7 +471,6 @@ impl Render for CaptureView {
         v_flex()
             .key_context(KEY_CONTEXT)
             .on_action(cx.listener(|this, _: &LaunchFullos, _window, cx| this.launch_fullos(cx)))
-            // 入力欄が処理しなかった Esc だけがここに届く（補完中は補完が閉じるだけ）。
             .on_action(cx.listener(|this, _: &Escape, _window, cx| this.dismiss(cx)))
             .capture_action(cx.listener(Self::on_backspace))
             .size_full()
