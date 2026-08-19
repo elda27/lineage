@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 
-import { bodyPreview } from "@core/domain/memo/Memo";
+import { bodyPreview, metaText, type MetaAssignment } from "@core/domain/memo/Memo";
 import { ActionMenu } from "@/features/automation/ui/ActionMenu";
 import { absoluteDateTime } from "@/shared/format";
 import { Icon, primaryButton, quietButton, secondaryButton } from "@/shared/ui/kit";
@@ -21,13 +21,28 @@ export function MemoDetail({
 }) {
   const [editing, setEditing] = useState(false),
     [title, setTitle] = useState(memo.title),
-    [body, setBody] = useState(memo.body);
+    [body, setBody] = useState(memo.body),
+    [metas, setMetas] = useState(memo.metas);
   const bodyCompletion = useMetaCompletion({ value: body, onChange: setBody });
   const save = (e: FormEvent) => {
     e.preventDefault();
-    update({ ...memo, title, body, preview: bodyPreview(body) });
+    update({ ...memo, title, body, metas, preview: bodyPreview(body) });
     setEditing(false);
   };
+  const cancelEditing = () => {
+    setTitle(memo.title);
+    setBody(memo.body);
+    setMetas(memo.metas);
+    setEditing(false);
+  };
+  const startEditing = () => {
+    setTitle(memo.title);
+    setBody(memo.body);
+    setMetas(memo.metas);
+    setEditing(true);
+  };
+  const removeMeta = (removed: MetaAssignment) =>
+    setMetas((current) => current.filter((meta) => metaText(meta) !== metaText(removed)));
   return (
     <div
       className="fixed inset-0 z-20 flex animate-[fade_0.18s] justify-end bg-[#27272245]"
@@ -63,7 +78,7 @@ export function MemoDetail({
                 <Icon name="archive" />
               </button>
             )}
-            <button className={quietButton} onClick={() => setEditing(true)}>
+            <button className={quietButton} aria-label="編集" onClick={startEditing}>
               <Icon name="edit" />
             </button>
             <button
@@ -98,8 +113,18 @@ export function MemoDetail({
               />
               {bodyCompletion.suggestionsElement}
             </div>
+            <div className="rounded-lg border border-[#deded8] p-3">
+              <div className="mb-2 text-[11px] text-[#969791]">タグ</div>
+              {metas.length > 0 ? (
+                <div className="flex flex-wrap gap-1.5">
+                  <MetaChips metas={metas} onRemove={removeMeta} />
+                </div>
+              ) : (
+                <p className="text-xs text-[#969791]">タグはありません</p>
+              )}
+            </div>
             <div className="flex justify-end gap-2">
-              <button type="button" className={secondaryButton} onClick={() => setEditing(false)}>
+              <button type="button" className={secondaryButton} onClick={cancelEditing}>
                 キャンセル
               </button>
               <button className={primaryButton}>保存する</button>
