@@ -39,6 +39,7 @@
     },
     "windows": {
       "wix": {
+        "version": "0.0.6.0",
         "template": "wix/main.wxs",
         "fragmentPaths": [
           "wix/minos.wxs"
