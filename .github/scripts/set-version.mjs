@@ -4,8 +4,9 @@
 //   node .github/scripts/set-version.mjs --check
 //   node .github/scripts/set-version.mjs --set 1.2.3
 //
-// The release workflow checks that the tag, VERSION, the MSI version, the
-// Tauri bundle version and the updater's latest.json version all agree.
+// The application/updater version remains SemVer. WiX gets a separate numeric
+// ProductVersion (major.minor.patch.build), because MSI does not accept SemVer
+// prerelease syntax such as `0.0.7-42` directly.
 
 import { readFileSync, writeFileSync } from "node:fs";
 
@@ -18,10 +19,25 @@ if ((args.length && !check && args[0] !== "--set") || (check && args.length !== 
 }
 
 const version = setVersion ?? readFileSync("VERSION", "utf8").trim();
-if (!version || !/^\d+\.\d+\.\d+(?:[-+].*)?$/.test(version)) {
+const versionMatch = version.match(/^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/);
+if (!versionMatch) {
   console.error(`invalid version: ${version || "nothing"}`);
   process.exit(1);
 }
+
+const [, majorText, minorText, patchText, prerelease] = versionMatch;
+const major = Number(majorText);
+const minor = Number(minorText);
+const patch = Number(patchText);
+const build = prerelease && /^\d+$/.test(prerelease) ? Number(prerelease) : 0;
+
+// Tauri/WiX limits: major/minor <= 255, patch/build <= 65535.
+if (major > 255 || minor > 255 || patch > 65535 || build > 65535) {
+  console.error(`version ${version} cannot be represented as an MSI ProductVersion`);
+  process.exit(1);
+}
+
+const wixVersion = `${major}.${minor}.${patch}.${build}`;
 
 if (setVersion) writeFileSync("VERSION", `${version}\n`);
 
@@ -33,10 +49,11 @@ const writeOrCheck = (path, current, next) => {
   else writeFileSync(path, next);
 };
 
-const setJsonVersion = (path) => {
+const setJsonVersion = (path, configure) => {
   const json = JSON.parse(readFileSync(path, "utf8"));
   const current = `${JSON.stringify(json, null, 2)}\n`;
   json.version = version;
+  configure?.(json);
   writeOrCheck(path, current, `${JSON.stringify(json, null, 2)}\n`);
 };
 
@@ -59,7 +76,12 @@ const setCargoVersion = (path) => {
 };
 
 setJsonVersion("fullos/package.json");
-setJsonVersion("fullos/src-tauri/tauri.conf.json");
+setJsonVersion("fullos/src-tauri/tauri.conf.json", (json) => {
+  json.bundle ??= {};
+  json.bundle.windows ??= {};
+  json.bundle.windows.wix ??= {};
+  json.bundle.windows.wix.version = wixVersion;
+});
 setCargoVersion("fullos/src-tauri/Cargo.toml");
 setCargoVersion("minos/Cargo.toml");
 setCargoVersion("agentos/Cargo.toml");
@@ -70,4 +92,4 @@ if (changes.length) {
   process.exit(1);
 }
 
-console.log(check ? `version ${version} is synchronized` : `version synchronized to ${version}`);
+console.log(check ? `version ${version} is synchronized (WiX ${wixVersion})` : `version synchronized to ${version} (WiX ${wixVersion})`);
