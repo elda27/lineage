@@ -31,6 +31,7 @@ use lineage_core::infra::sqlite::Database;
 use crate::app::Services;
 use crate::features::capture::view::CaptureView;
 use crate::features::window::AppWindow;
+use crate::infra::logging;
 use crate::infra::system::{
     ForegroundApp, SelectionCapture, SystemEvent, launcher, single_instance, tray,
     window as system_window,
@@ -46,14 +47,31 @@ const AUTO_START_FLAG: &str = "--autostart";
 const WINDOW_SIZE: Size<Pixels> = size(px(640.), px(260.));
 
 fn main() {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    let log_path = match logging::init() {
+        Ok(path) => path,
+        Err(error) => {
+            // ログ自体を用意できない場合だけは、デバッグ実行時に見える標準エラーへ出す。
+            eprintln!("minos のファイルログを初期化できません: {error:#}");
+            std::process::exit(1);
+        }
+    };
 
     // 自動起動は「利用者が呼んだ」わけではないので、画面を出さずトレイに常駐するだけにする。
     let auto_start = std::env::args().skip(1).any(|arg| arg == AUTO_START_FLAG);
+    log::info!(
+        "minos を起動します: version={}, pid={}, autostart={}, log={}",
+        env!("CARGO_PKG_VERSION"),
+        std::process::id(),
+        auto_start,
+        log_path.display()
+    );
 
     // 2つ目のプロセスはトレイアイコンを増やすだけなので、既存のウィンドウを出して終わる。
     let _instance = match single_instance::acquire() {
-        single_instance::Instance::First(handle) => handle,
+        single_instance::Instance::First(handle) => {
+            log::info!("単一インスタンスの所有権を取得しました");
+            handle
+        }
         single_instance::Instance::AlreadyRunning if auto_start => {
             // 自動起動が重なっただけ（例: ログオン起動の直後に更新インストーラが起動した）。
             // 利用者は何も要求していないので、黙って譲る。
@@ -68,7 +86,10 @@ fn main() {
     };
 
     let database = match Database::open_default() {
-        Ok(database) => database,
+        Ok(database) => {
+            log::info!("データベースを開きました");
+            database
+        }
         Err(error) => {
             log::error!("データベースを開けません: {error:#}");
             std::process::exit(1);
@@ -80,19 +101,28 @@ fn main() {
         log::warn!("設定を読み込めません（既定値で続行します）: {error:#}");
         Settings::default()
     });
+    log::info!(
+        "設定を読み込みました: auto_pull_foreground_text={}",
+        settings.auto_pull_foreground_text
+    );
 
     // ホットキーとトレイは専用スレッドが所有する。ここではその窓口だけを受け取る。
     let bridge = match tray::spawn(settings.auto_pull_foreground_text) {
-        Ok(bridge) => bridge,
+        Ok(bridge) => {
+            log::info!("タスクトレイとホットキーを初期化しました");
+            bridge
+        }
         Err(error) => {
             log::error!("タスクトレイを初期化できません: {error:#}");
             std::process::exit(1);
         }
     };
 
+    log::info!("GPUI アプリケーションを開始します");
     gpui_platform::application().run(move |cx: &mut App| {
         gpui_component::init(cx);
         features::capture::view::init(cx);
+        log::info!("GPUI コンポーネントを初期化しました");
 
         let app_window = Rc::new(AppWindow::new());
         let events = bridge.events();
@@ -107,9 +137,8 @@ fn main() {
                     let view_slot = view_slot.clone();
 
                     move |window, cx| {
-                        let view = cx.new(|cx| {
-                            CaptureView::new(services, app_window.clone(), window, cx)
-                        });
+                        let view =
+                            cx.new(|cx| CaptureView::new(services, app_window.clone(), window, cx));
                         *view_slot.borrow_mut() = Some(view.clone());
 
                         // 閉じるボタンで終了せず、タスクトレイに残る（docs/ui.md）。
@@ -130,6 +159,10 @@ fn main() {
                     }
                 })
                 .expect("ウィンドウを開けませんでした");
+            log::info!(
+                "入力ウィンドウを作成しました: initially_visible={}",
+                !auto_start
+            );
 
             let view = view_slot
                 .borrow()
@@ -188,9 +221,11 @@ fn main() {
                     }
                 }
             }
+            log::info!("システムイベントの受信を終了しました");
         })
         .detach();
     });
+    log::info!("minos を終了します");
 }
 
 fn window_options(auto_start: bool) -> WindowOptions {
