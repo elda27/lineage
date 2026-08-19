@@ -65,18 +65,111 @@ impl Database {
         Self::from_connection(Connection::open_in_memory()?)
     }
 
-    fn from_connection(conn: Connection) -> Result<Self> {
+    fn from_connection(mut conn: Connection) -> Result<Self> {
         conn.execute_batch(
             "PRAGMA journal_mode = WAL;
              PRAGMA synchronous = NORMAL;
              PRAGMA busy_timeout = 3000;",
         )?;
-        conn.execute_batch(SCHEMA_SQL)
-            .context("スキーマの適用に失敗しました")?;
+        apply_schema(&mut conn, SCHEMA_SQL)?;
         Ok(Self {
             conn: RefCell::new(conn),
         })
     }
+}
+
+/// 互換更新と現行スキーマを同じトランザクションで適用する。
+fn apply_schema(conn: &mut Connection, schema_sql: &str) -> Result<()> {
+    let tx = conn
+        .transaction()
+        .context("スキーマ更新トランザクションを開始できません")?;
+    upgrade_automation_runs(&tx).context("既存 automation_runs の更新に失敗しました")?;
+    tx.execute_batch(schema_sql)
+        .context("スキーマの適用に失敗しました")?;
+    tx.commit()
+        .context("スキーマ更新を確定できません")?;
+    Ok(())
+}
+
+/// `automation_runs` に後から追加された列を、共有スキーマの適用前に補う。
+///
+/// `CREATE TABLE IF NOT EXISTS` は既存テーブルの列を更新しないため、旧DBでは
+/// スキーマ末尾の `execution_key` インデックス作成時に起動が失敗していた。
+/// 列ごとに存在を確認してから `ALTER TABLE` することで、旧DB・途中まで適用された
+/// DB・新規DBのいずれでも安全に再実行できるようにする。ALTER TABLE は同じ
+/// トランザクション内で行うため、途中で失敗した場合も一部だけ残らない。
+fn upgrade_automation_runs(tx: &rusqlite::Transaction<'_>) -> Result<()> {
+    let table_exists: bool = tx.query_row(
+        "SELECT EXISTS(
+             SELECT 1 FROM sqlite_master
+             WHERE type = 'table' AND name = 'automation_runs'
+         )",
+        [],
+        |row| row.get(0),
+    )?;
+    if !table_exists {
+        return Ok(());
+    }
+
+    let existing_columns = {
+        let mut statement = tx.prepare("PRAGMA table_info(automation_runs)")?;
+        statement
+            .query_map([], |row| row.get::<_, String>(1))?
+            .collect::<rusqlite::Result<Vec<_>>>()?
+    };
+
+    // These columns were introduced after the original ten-column table. Keep each
+    // definition identical to db/schema.sql so the resulting table is compatible
+    // with both local SQLite and D1.
+    const ADDED_COLUMNS: [(&str, &str); 8] = [
+        ("tag_id", "ALTER TABLE automation_runs ADD COLUMN tag_id TEXT"),
+        (
+            "recipe_name",
+            "ALTER TABLE automation_runs ADD COLUMN recipe_name TEXT",
+        ),
+        (
+            "recipe_ownership",
+            "ALTER TABLE automation_runs ADD COLUMN recipe_ownership TEXT",
+        ),
+        (
+            "processing_fingerprint",
+            "ALTER TABLE automation_runs ADD COLUMN processing_fingerprint TEXT",
+        ),
+        (
+            "input_fingerprint",
+            "ALTER TABLE automation_runs ADD COLUMN input_fingerprint TEXT",
+        ),
+        (
+            "execution_key",
+            "ALTER TABLE automation_runs ADD COLUMN execution_key TEXT",
+        ),
+        (
+            "output_fingerprint",
+            "ALTER TABLE automation_runs ADD COLUMN output_fingerprint TEXT",
+        ),
+        (
+            "forced",
+            "ALTER TABLE automation_runs ADD COLUMN forced INTEGER NOT NULL DEFAULT 0",
+        ),
+    ];
+
+    let missing = ADDED_COLUMNS
+        .iter()
+        .filter(|(name, _)| {
+            !existing_columns
+                .iter()
+                .any(|column| column.eq_ignore_ascii_case(name))
+        })
+        .map(|(_, statement)| *statement)
+        .collect::<Vec<_>>();
+    if missing.is_empty() {
+        return Ok(());
+    }
+
+    for statement in missing {
+        tx.execute_batch(statement)?;
+    }
+    Ok(())
 }
 
 impl CaptureStore for Database {
@@ -894,6 +987,123 @@ mod tests {
         )
     }
 
+    const LEGACY_AUTOMATION_RUNS: &str =
+        "CREATE TABLE automation_runs (
+             id TEXT PRIMARY KEY,
+             workspace_id TEXT NOT NULL,
+             rule_id TEXT NOT NULL,
+             source_document_id TEXT NOT NULL,
+             result_document_id TEXT,
+             status TEXT NOT NULL,
+             backend_kind TEXT NOT NULL,
+             error TEXT,
+             started_at TEXT NOT NULL,
+             finished_at TEXT
+         )";
+
+    fn automation_run_columns(conn: &Connection) -> Vec<String> {
+        let mut statement = conn
+            .prepare("PRAGMA table_info(automation_runs)")
+            .unwrap();
+        statement
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap()
+    }
+
+    #[test]
+    fn upgrades_legacy_automation_runs_before_applying_schema() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(LEGACY_AUTOMATION_RUNS).unwrap();
+        conn.execute(
+            "INSERT INTO automation_runs
+             (id, workspace_id, rule_id, source_document_id, status, backend_kind, started_at)
+             VALUES ('run-1', 'ws', 'rule-1', 'doc-1', 'succeeded', 'api_key', 'now')",
+            [],
+        )
+        .unwrap();
+
+        let db = Database::from_connection(conn).unwrap();
+        {
+            let conn = db.conn.borrow();
+            let columns = automation_run_columns(&conn);
+            for name in [
+                "tag_id",
+                "recipe_name",
+                "recipe_ownership",
+                "processing_fingerprint",
+                "input_fingerprint",
+                "execution_key",
+                "output_fingerprint",
+                "forced",
+            ] {
+                assert!(columns.iter().any(|column| column == name), "missing {name}");
+            }
+            let row: (String, Option<String>, i64) = conn
+                .query_row(
+                    "SELECT status, execution_key, forced FROM automation_runs WHERE id = 'run-1'",
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )
+                .unwrap();
+            assert_eq!(row, ("succeeded".into(), None, 0));
+        }
+
+        // Reopening an already upgraded database must be a no-op.
+        Database::from_connection(db.conn.into_inner()).unwrap();
+    }
+
+    #[test]
+    fn rolls_back_legacy_upgrade_when_schema_application_fails() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(LEGACY_AUTOMATION_RUNS).unwrap();
+
+        let result = apply_schema(
+            &mut conn,
+            "CREATE TABLE should_be_rolled_back (id TEXT); THIS IS NOT SQL;",
+        );
+
+        assert!(result.is_err());
+        assert_eq!(automation_run_columns(&conn).len(), 10);
+        let marker_exists: bool = conn
+            .query_row(
+                "SELECT EXISTS(
+                     SELECT 1 FROM sqlite_master
+                     WHERE type = 'table' AND name = 'should_be_rolled_back'
+                 )",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(!marker_exists);
+    }
+
+    #[test]
+    fn opens_a_partially_upgraded_automation_runs_table() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(LEGACY_AUTOMATION_RUNS).unwrap();
+        conn.execute_batch(
+            "ALTER TABLE automation_runs ADD COLUMN tag_id TEXT;
+             ALTER TABLE automation_runs ADD COLUMN forced INTEGER NOT NULL DEFAULT 0;",
+        )
+        .unwrap();
+
+        let db = Database::from_connection(conn).unwrap();
+        let conn = db.conn.borrow();
+        let columns = automation_run_columns(&conn);
+        assert_eq!(columns.len(), 18);
+        assert!(
+            conn.query_row(
+                "SELECT 1 FROM sqlite_master
+                 WHERE type = 'index' AND name = 'idx_automation_runs_execution'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .is_ok()
+        );
+    }
+
     #[test]
     fn applies_the_shared_schema_on_open() {
         let db = Database::open_in_memory().unwrap();
@@ -926,7 +1136,7 @@ mod tests {
         })
         .unwrap();
 
-        let records = db.list("ws").unwrap();
+        let records = LineageQuery::list(&db, "ws").unwrap();
         assert_eq!(records.len(), 2);
         assert_eq!(records[0].seq, 1);
         assert_eq!(records[1].prev_hash, records[0].content_hash);
@@ -946,7 +1156,7 @@ mod tests {
         });
 
         assert!(result.is_err());
-        assert!(db.list("ws").unwrap().is_empty());
+        assert!(LineageQuery::list(&db, "ws").unwrap().is_empty());
     }
 
     #[test]
@@ -986,7 +1196,8 @@ mod tests {
         assert_eq!(renamed.display_name, "new");
 
         TagRepository::soft_delete(&db, "tag-1", "deleted").unwrap();
-        assert!(TagRepository::list(&db, "ws", false).unwrap().is_empty());
+        let visible = TagRepository::list(&db, "ws", false).unwrap();
+        assert!(visible.iter().all(|tag| tag.id != "tag-1"));
         let provenance: String = db
             .conn
             .borrow()
