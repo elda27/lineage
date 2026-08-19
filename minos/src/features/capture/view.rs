@@ -350,6 +350,7 @@ impl CaptureView {
                     .child(div().min_w_0().truncate().child(text))
                     .child(
                         div()
+                            .id(("remove-tag-button", index))
                             .flex_none()
                             .cursor_pointer()
                             .text_color(cx.theme().muted_foreground)
