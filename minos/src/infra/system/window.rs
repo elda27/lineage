@@ -5,12 +5,12 @@
 
 use windows::Win32::Foundation::{HWND, LPARAM, POINT, RECT};
 use windows::Win32::Graphics::Gdi::{
-    GetMonitorInfoW, HMONITOR, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromPoint,
+    GetMonitorInfoW, HMONITOR, MONITOR_DEFAULTTOPRIMARY, MONITORINFO, MonitorFromPoint,
 };
 use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
 use windows::Win32::UI::Input::KeyboardAndMouse::SetFocus;
 use windows::Win32::UI::WindowsAndMessaging::{
-    BringWindowToTop, EnumWindows, GetClassNameW, GetCursorPos, GetForegroundWindow, GetWindowRect,
+    BringWindowToTop, EnumWindows, GetClassNameW, GetForegroundWindow, GetWindowRect,
     GetWindowTextW, GetWindowThreadProcessId, HWND_NOTOPMOST, HWND_TOPMOST, IsWindowVisible,
     SW_HIDE, SW_SHOW, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, SetForegroundWindow,
     SetWindowPos, ShowWindow,
@@ -45,7 +45,10 @@ pub fn hide(hwnd: isize) {
     }
 }
 
-/// カーソルのあるモニタの中央に置いて表示する。
+/// プライマリモニタの中央に置いて表示する。
+///
+/// PowerPoint のスライドショーをセカンダリモニタへ全画面表示している場合も、
+/// 発表者ツールを操作するプライマリモニタへ入力画面を表示する。
 ///
 /// 一度 topmost にしてから notopmost に戻すことで「最前面に出るが、最前面固定はしない」。
 pub fn show_centered(hwnd: isize) {
@@ -176,10 +179,10 @@ unsafe extern "system" fn enum_windows_proc(hwnd: HWND, lparam: LPARAM) -> BOOL 
 
 /// 中央配置の左上座標を求める。
 unsafe fn centered_position(hwnd: HWND) -> Option<(i32, i32)> {
-    let mut cursor = POINT::default();
-    unsafe { GetCursorPos(&mut cursor) }.ok()?;
-
-    let monitor: HMONITOR = unsafe { MonitorFromPoint(cursor, MONITOR_DEFAULTTONEAREST) };
+    // Windows の仮想スクリーンではプライマリモニタが原点 (0, 0) を持つ。
+    // カーソル位置ではなくこの原点から選ぶことで、表示先を常にプライマリへ固定する。
+    let primary_origin = POINT { x: 0, y: 0 };
+    let monitor: HMONITOR = unsafe { MonitorFromPoint(primary_origin, MONITOR_DEFAULTTOPRIMARY) };
     let mut info = MONITORINFO {
         cbSize: size_of::<MONITORINFO>() as u32,
         ..Default::default()
