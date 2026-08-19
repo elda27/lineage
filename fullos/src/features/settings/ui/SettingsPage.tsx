@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import { AutomationSettings } from "@/features/automation/ui/AutomationSettings";
 import { AgentSkillSettings } from "@/features/skill/ui/AgentSkillSettings";
+import { LineageUpdateSettings } from "@/features/updater/ui/LineageUpdateSettings";
 import {
   eyebrow,
   Icon,
@@ -65,6 +66,7 @@ export function SettingsPage() {
               ))}
             </div>
           </SettingRow>
+          <LineageUpdateSettings />
         </div>
       </section>
       <section className={section}>

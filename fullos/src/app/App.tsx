@@ -18,7 +18,6 @@ import { useMemoActions } from "@/features/memo/service/useMemoActions";
 import { useRecordedMemos } from "@/features/memo/service/useRecordedMemos";
 import { SettingsPage } from "@/features/settings/ui/SettingsPage";
 import { AgentSkillDialog } from "@/features/skill/ui/AgentSkillDialog";
-import { UpdateBanner } from "@/features/updater/ui/UpdateBanner";
 import { TagExplorerPage } from "@/features/tag-explorer/ui/TagExplorerPage";
 import { useAccount } from "@/features/workspace/service/useAccount";
 import type { Page } from "@/shared/navigation";
@@ -53,7 +52,6 @@ export default function App() {
     });
   return (
     <div className="min-h-screen">
-      <UpdateBanner />
       <AgentSkillDialog />
       <Sidebar page={page} setPage={setPage} account={account} />
       <main className="min-h-screen min-w-0 pb-[76px] lg:ml-[226px] lg:w-[calc(100%-226px)] lg:pb-0">
