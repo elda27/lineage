@@ -7,7 +7,7 @@
 #   - バージョンは VERSION のパッチを 1 つ上げて実行番号を prerelease に付けた
 #     `X.Y.(Z+1)-<run_number>`。VERSION 自体はコミットしない（ビルド時にだけ書き換える）。
 #   - リリースは必ず prerelease。GitHub の `releases/latest` は prerelease を返さないので、
-#     fullos のアプリ内 updater（`releases/latest/download/latest.json` を見る）には出てこない。
+#     fullos のアプリ内 updater は `releases/download/nightly/latest.json` を直接見る。
 #
 # 成果物は release.yml と同じ MSI + .msi.sig + latest.json。
 name: nightly
@@ -122,9 +122,12 @@ jobs:
             .
             fullos/src-tauri
 
-      # VERSION と各マニフェストを nightly のバージョンに揃える。コミットはしない。
-      - name: Set nightly version
-        run: node .github/scripts/set-version.mjs --set ${{ needs.prepare.outputs.version }}
+      # VERSION と各マニフェストを nightly のバージョンに揃え、
+      # updater は固定の nightly prerelease を参照させる。コミットはしない。
+      - name: Set nightly version and updater channel
+        run: |
+          node .github/scripts/set-version.mjs --set ${{ needs.prepare.outputs.version }}
+          node .github/scripts/set-updater-channel.mjs nightly
 
       - name: Install dependencies
         working-directory: fullos
