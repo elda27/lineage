@@ -1,12 +1,13 @@
+import { invoke } from "@tauri-apps/api/core";
+
 import { selectOrEmpty, type SqlHandle } from "./SqlHandle";
 
 type SettingRow = { value: string };
 
 /**
- * `settings` テーブルの読み書き。
+ * `settings` テーブルの repository。
  *
- * minos が書いた値と同じ行を fullos からも編集する（docs/ui.md「fullos」4.）。
- * lineage を生まない設定なので、fullos が直接書いてよい。
+ * 読み取りは WebView の plugin-sql、mutation は Rust command に委ねる（ADR-0004）。
  */
 export class SqliteSettingsRepository {
   constructor(private readonly db: SqlHandle) {}
@@ -21,12 +22,11 @@ export class SqliteSettingsRepository {
   }
 
   async set(workspaceId: string, key: string, value: string): Promise<void> {
-    await this.db.execute(
-      `INSERT INTO settings (workspace_id, key, value, updated_at)
-       VALUES ($1, $2, $3, $4)
-       ON CONFLICT(workspace_id, key)
-       DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
-      [workspaceId, key, value, new Date().toISOString()],
-    );
+    await invoke<void>("setting_set", {
+      workspaceId,
+      key,
+      value,
+      at: new Date().toISOString(),
+    });
   }
 }
