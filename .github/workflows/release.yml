@@ -73,7 +73,7 @@ jobs:
             fullos/src-tauri
             minos
 
-      - name: Set version from tag
+      - name: Set version and updater channel from tag
         shell: pwsh
         run: |
           $expected = (Get-Content VERSION -Raw).Trim()
@@ -81,6 +81,7 @@ jobs:
             throw "release tag version '${{ needs.prepare.outputs.version }}' does not match VERSION '$expected'"
           }
           node .github/scripts/set-version.mjs --check
+          node .github/scripts/set-updater-channel.mjs stable
 
       - name: Install dependencies
         working-directory: fullos
