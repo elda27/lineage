@@ -1,3 +1,5 @@
+import { invoke } from "@tauri-apps/api/core";
+
 import type {
   AutomationRule,
   AutomationRuleInput,
@@ -43,11 +45,10 @@ type RunRow = {
 };
 
 /**
- * ローカル SQLite の `automation_rules` を読み書きする。
+ * ローカル SQLite の `automation_rules` repository。
  *
- * ここが fullos で唯一の書き込み先になる。lineage(links) に触る操作は含まない
- * （それは agentos が同一トランザクションで確定させる）。
- * SQL は D1 版と共通にできる形にしてある（実行ハンドルだけが違う）。
+ * 読み取りは WebView の plugin-sql、mutation は Rust command に委ねる（ADR-0004）。
+ * lineage(links) を伴う自動化結果の確定は、さらに agentos 側の境界を通す。
  */
 export class SqliteAutomationRuleRepository implements AutomationRuleRepository {
   constructor(private readonly db: SqlHandle) {}
@@ -76,49 +77,17 @@ export class SqliteAutomationRuleRepository implements AutomationRuleRepository 
       triggerKind: input.triggerKind,
       trigger: input.trigger,
       enabled: input.enabled,
-      // 新規なら作成日時も now。更新では下の ON CONFLICT が既存の値を残す。
       createdAt: now,
       updatedAt: now,
     };
 
-    await this.db.execute(
-      `INSERT INTO automation_rules
-           (id, workspace_id, name, description, prompt, backend_kind, backend_config,
-            trigger_kind, trigger_config, enabled, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-       ON CONFLICT(id) DO UPDATE SET
-           name = excluded.name,
-           description = excluded.description,
-           prompt = excluded.prompt,
-           backend_kind = excluded.backend_kind,
-           backend_config = excluded.backend_config,
-           trigger_kind = excluded.trigger_kind,
-           trigger_config = excluded.trigger_config,
-           enabled = excluded.enabled,
-           updated_at = excluded.updated_at`,
-      [
-        rule.id,
-        rule.workspaceId,
-        rule.name,
-        rule.description,
-        rule.prompt,
-        rule.backend,
-        JSON.stringify(toBackendConfigJson(rule.backendConfig)),
-        rule.triggerKind,
-        JSON.stringify(toTriggerJson(rule.trigger)),
-        rule.enabled ? 1 : 0,
-        rule.createdAt,
-        rule.updatedAt,
-      ],
-    );
-
+    await invoke<void>("automation_rule_save", { rule });
     return rule;
   }
 
   async remove(id: string): Promise<void> {
-    // 実行履歴は消さない。ルールが無くなっても「いつ何が作られたか」は残す必要がある
-    // （lineage 側に結果 document への link が残っているため）。
-    await this.db.execute("DELETE FROM automation_rules WHERE id = $1", [id]);
+    // 実行履歴は消さない。ルールが無くなっても「いつ何が作られたか」は残す必要がある。
+    await invoke<void>("automation_rule_delete", { id });
   }
 }
 
@@ -172,27 +141,6 @@ function toRun(row: RunRow): AutomationRun {
     error: row.error,
     startedAt: row.started_at,
     finishedAt: row.finished_at,
-  };
-}
-
-/**
- * 保存する JSON は Rust 側（serde）が読む形に合わせる。
- *
- * `undefined` はキーごと消えてしまい serde が既定値を使えなくなるので、
- * 明示的に null にしてから書き出す。
- */
-function toBackendConfigJson(config: BackendConfig) {
-  return {
-    provider: config.provider,
-    model: config.model ?? null,
-    effort: config.effort ?? null,
-  };
-}
-
-function toTriggerJson(trigger: Trigger) {
-  return {
-    metas: trigger.metas.map((meta) => ({ label: meta.label, value: meta.value ?? null })),
-    cron: trigger.cron ?? null,
   };
 }
 
