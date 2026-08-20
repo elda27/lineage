@@ -20,8 +20,9 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
-# minos が書いたローカル SQLite を webview 側（plugin-sql）から読むため。
+# WebView 側は読み取り専用。mutation は Rust command で同じ sqlx/SQLite を使う。
 tauri-plugin-sql = { version = "2", features = ["sqlite"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # ブラウザ方式で回収した応答をウィンドウタイトル経由で運ぶときの符号化（src/browser.rs）。
@@ -29,8 +30,9 @@ base64 = "0.22"
 
 # 自動化の実行は同梱の agentos.exe に任せる（src/automation.rs）。
 # lineage-core を直接リンクしないのは、rusqlite と tauri-plugin-sql(sqlx) が
-# どちらも native の sqlite3 をリンクしていて衝突するため。1プロセスに sqlite の
-# スタックを2つ抱えるのも避けたいので、実行エンジンは別プロセスに分けている。
+# どちらも native の sqlite3 をリンクしていて衝突するため。lineage/hash-chain を伴う
+# 書き込みは引き続き agentos に集約する。fullos 自身の状態・設定 mutation は Rust 側で
+# sqlx を使い、WebView から任意の書き込み SQL を発行できないようにする。
 
 # 自動更新はデスクトップのみ。updater が再起動に process プラグインを使う。
 [target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
