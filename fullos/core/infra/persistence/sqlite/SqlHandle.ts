@@ -1,20 +1,11 @@
 /**
- * `@tauri-apps/plugin-sql` の Database のうち、リポジトリ実装で必要な部分だけ。
+ * `@tauri-apps/plugin-sql` の Database のうち、WebView の read model で必要な部分だけ。
  *
- * 直接プラグインの型に依存しないので、テストでは差し替えられる。
+ * fullos の WebView は `sql:default` のみを持ち、INSERT / UPDATE / DELETE は
+ * Tauri command を経由して Rust 側で実行する（ADR-0004）。
  */
 export interface SqlHandle {
   select<T>(query: string, bindValues?: unknown[]): Promise<T>;
-
-  /**
-   * INSERT / UPDATE / DELETE。
-   *
-   * 使ってよいのは lineage(links) を生まない行だけ（自動化ルールなど）。
-   * lineage を伴う書き込みは agentos（Rust）を通す。webview からも書けると
-   * hash-chain の作り方がアプリごとに分岐しうるため
-   * （docs/concept/MINIMAL_ARCHITECTURE.md「4. Lineage の真正性担保」）。
-   */
-  execute(query: string, bindValues?: unknown[]): Promise<unknown>;
 }
 
 /**
