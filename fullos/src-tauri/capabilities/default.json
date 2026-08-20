@@ -9,6 +9,7 @@
     "opener:default",
     "updater:default",
     "process:allow-restart",
-    "sql:default"
+    "sql:default",
+    "sql:allow-execute"
   ]
 }
