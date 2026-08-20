@@ -2,11 +2,7 @@ import Database from "@tauri-apps/plugin-sql";
 import { invoke } from "@tauri-apps/api/core";
 import { join, localDataDir } from "@tauri-apps/api/path";
 
-import { ArchiveCompletedTasks } from "@core/app/memo/ArchiveCompletedTasks";
-import { ArchiveMemo } from "@core/app/memo/ArchiveMemo";
 import { ListMemos, DEFAULT_MEMO_LIMIT } from "@core/app/memo/ListMemos";
-import { SetMemoDone } from "@core/app/memo/SetMemoDone";
-import { TrashMemo } from "@core/app/memo/TrashMemo";
 import { SuggestMetaTags, DEFAULT_SUGGESTION_LIMIT } from "@core/app/meta/SuggestMetaTags";
 import type {
   AutomationRule,
@@ -19,6 +15,7 @@ import {
   resolveBrowserProfile,
   type BrowserProfile,
 } from "@core/domain/automation/BrowserProfile";
+import { builtinTagLabels } from "@core/domain/memo/BuiltinTag";
 import {
   AGENT_SKILL_PREFERENCE_KEY,
   parseAgentSkillPreference,
@@ -50,14 +47,11 @@ const DEFAULT_RUN_LIMIT = 50;
 /**
  * ローカル接続（認証なし・単一利用者）の composition root。
  *
- * minos と同じ SQLite ファイルを開き、application を in-process で呼ぶ。
+ * minos と同じ SQLite ファイルを開く。WebView の plugin-sql は読み取り専用とし、
+ * mutation はすべて Tauri command を通して Rust 側で実行する。
  *
- * 書き込みは2系統に分かれる。
- *
- * - 自動化ルール … lineage を生まない設定なので、ここから plugin-sql で直接書く
- * - 自動化の実行 … 結果 document と links の追記を伴うので、Tauri コマンド越しに
- *   agentos（Rust）へ委ねる。webview からも鎖に書けると hash-chain の作り方が
- *   アプリごとに分岐しうるため（docs/concept/MINIMAL_ARCHITECTURE.md 4.）
+ * lineage(links) の追記を伴う自動化結果は、さらに agentos に委ねて hash-chain の
+ * 書き込み経路を一本化する。
  */
 export async function createLocalAppClient(): Promise<ApplicationPort> {
   const db = await Database.load(`sqlite:${await minosDatabasePath()}`);
@@ -73,23 +67,44 @@ export async function createLocalAppClient(): Promise<ApplicationPort> {
 
   return {
     listTags: () => tags.all(DEFAULT_WORKSPACE_ID),
-    updateTag: (id, value) => tags.update(id, value),
-    deleteTag: (id) => tags.remove(id),
+    updateTag: (id, value) =>
+      invoke("tag_update", { id, value, at: new Date().toISOString() }),
+    deleteTag: (id) => invoke("tag_delete", { id, at: new Date().toISOString() }),
+
     listMemos: (limit = DEFAULT_MEMO_LIMIT) =>
       new ListMemos(memos, memoStates).execute(DEFAULT_WORKSPACE_ID, limit),
 
-    // 組み込みタグの状態は lineage(links) を生まない行なので、ここから直接書く。
     setMemoDone: (memoId, done) =>
-      new SetMemoDone(memoStates).execute(DEFAULT_WORKSPACE_ID, memoId, done, new Date()),
+      invoke("memo_set_done", {
+        workspaceId: DEFAULT_WORKSPACE_ID,
+        memoId,
+        done,
+        at: new Date().toISOString(),
+      }),
 
-    setMemoArchived: (memoId, archived) =>
-      new ArchiveMemo(memoStates).execute(DEFAULT_WORKSPACE_ID, memoId, archived, new Date()),
+    setMemoArchived: (memoId, archived) => {
+      const now = new Date().toISOString();
+      return invoke("memo_set_archived", {
+        workspaceId: DEFAULT_WORKSPACE_ID,
+        memoId,
+        archivedAt: archived ? now : null,
+        updatedAt: now,
+      });
+    },
 
     trashMemo: (memoId) =>
-      new TrashMemo(memoStates).execute(DEFAULT_WORKSPACE_ID, memoId, new Date()),
+      invoke("memo_trash", {
+        workspaceId: DEFAULT_WORKSPACE_ID,
+        memoId,
+        at: new Date().toISOString(),
+      }),
 
     archiveCompletedTasks: () =>
-      new ArchiveCompletedTasks(memoStates).execute(DEFAULT_WORKSPACE_ID, new Date()),
+      invoke("memo_archive_done", {
+        workspaceId: DEFAULT_WORKSPACE_ID,
+        labels: builtinTagLabels("task"),
+        at: new Date().toISOString(),
+      }),
 
     suggestMetaTags: (query, limit = DEFAULT_SUGGESTION_LIMIT) =>
       new SuggestMetaTags(metaTags).execute(DEFAULT_WORKSPACE_ID, query, limit),
@@ -104,10 +119,9 @@ export async function createLocalAppClient(): Promise<ApplicationPort> {
 
     listAutomationRules: () => automationRules.all(DEFAULT_WORKSPACE_ID),
 
-    saveAutomationRule: (input: AutomationRuleInput) =>
-      automationRules.save(DEFAULT_WORKSPACE_ID, input),
+    saveAutomationRule: (input: AutomationRuleInput) => saveAutomationRule(input),
 
-    deleteAutomationRule: (id: string) => automationRules.remove(id),
+    deleteAutomationRule: (id: string) => invoke("automation_rule_delete", { id }),
 
     listAutomationRuns: (limit = DEFAULT_RUN_LIMIT) =>
       automationRuns.recent(DEFAULT_WORKSPACE_ID, limit),
@@ -157,11 +171,41 @@ export async function createLocalAppClient(): Promise<ApplicationPort> {
       ),
 
     saveAgentSkillPreference: (preference: AgentSkillPreference) =>
-      settings.set(DEFAULT_WORKSPACE_ID, AGENT_SKILL_PREFERENCE_KEY, JSON.stringify(preference)),
+      setSetting(AGENT_SKILL_PREFERENCE_KEY, JSON.stringify(preference)),
 
     saveBrowserProfileOverrides: (overrides) =>
-      settings.set(DEFAULT_WORKSPACE_ID, BROWSER_PROFILES_SETTING_KEY, JSON.stringify(overrides)),
+      setSetting(BROWSER_PROFILES_SETTING_KEY, JSON.stringify(overrides)),
   };
+}
+
+async function saveAutomationRule(input: AutomationRuleInput): Promise<AutomationRule> {
+  const now = new Date().toISOString();
+  const rule: AutomationRule = {
+    id: input.id ?? crypto.randomUUID(),
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    name: input.name,
+    description: input.description,
+    prompt: input.prompt,
+    backend: input.backend,
+    backendConfig: input.backendConfig,
+    triggerKind: input.triggerKind,
+    trigger: input.trigger,
+    enabled: input.enabled,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  await invoke("automation_rule_save", { rule });
+  return rule;
+}
+
+function setSetting(key: string, value: string): Promise<unknown> {
+  return invoke("setting_set", {
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    key,
+    value,
+    at: new Date().toISOString(),
+  });
 }
 
 /**
