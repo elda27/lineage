@@ -20,6 +20,12 @@ use crate::app::Services;
 
 /// 一度に出す候補の上限。
 const MAX_SUGGESTIONS: usize = 12;
+/// `+` の過去ノート候補は、ウィンドウに収まる件数に絞る。
+const MAX_MEMO_SUGGESTIONS: usize = 5;
+/// タイトル検索の対象にする最近のノート数。
+///
+/// 表示件数で取得を打ち切ると、6件目以降にある一致タイトルを見つけられない。
+const MEMO_SEARCH_LIMIT: usize = 100;
 
 pub struct MetaCompletionProvider {
     services: Rc<Services>,
@@ -110,11 +116,13 @@ impl MetaCompletionProvider {
             start: text.offset_to_position(0),
             end: text.offset_to_position(offset),
         };
+        // 表示件数より広く取得し、タイトルで絞ってから表示件数を制限する。
         let items = self
             .services
-            .recent_memos(MAX_SUGGESTIONS)?
+            .recent_memos(MEMO_SEARCH_LIMIT)?
             .into_iter()
-            .filter(|memo| query.is_empty() || memo.title.to_lowercase().contains(&query))
+            .filter(|memo| memo_title_matches(&memo.title, &query))
+            .take(MAX_MEMO_SUGGESTIONS)
             .map(|memo| CompletionItem {
                 filter_text: Some(format!("+{}", memo.title)),
                 label: memo.title,
@@ -129,6 +137,10 @@ impl MetaCompletionProvider {
             .collect();
         Ok(CompletionResponse::Array(items))
     }
+}
+
+fn memo_title_matches(title: &str, lowercase_query: &str) -> bool {
+    lowercase_query.is_empty() || title.to_lowercase().contains(lowercase_query)
 }
 
 const MEMO_SELECTION_START: &str = "\u{e000}memo:";
@@ -165,5 +177,12 @@ mod tests {
         let selection = memo_selection("memo-123");
         assert_eq!(selected_memo_id(&selection), Some("memo-123"));
         assert_eq!(selected_memo_id("+"), None);
+    }
+
+    #[test]
+    fn memo_titles_are_filtered_case_insensitively() {
+        assert!(memo_title_matches("Release Plan", "plan"));
+        assert!(memo_title_matches("Release Plan", "release"));
+        assert!(!memo_title_matches("Release Plan", "meeting"));
     }
 }
