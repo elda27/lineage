@@ -8,6 +8,11 @@ import { MetaChips } from "./MetaChips";
 import { SearchBox } from "./SearchBox";
 
 const FILTERS = ["すべて", "メモ", "タスク", "アーカイブ"] as const;
+const TASK_FILTERS = [
+  { label: "未完了", status: "incomplete" },
+  { label: "完了", status: "complete" },
+] as const;
+type TaskStatus = (typeof TASK_FILTERS)[number]["status"];
 
 export function SearchPage({
   memos,
@@ -25,6 +30,8 @@ export function SearchPage({
   actions: MemoActions;
 }) {
   const [filter, setFilter] = useState<(typeof FILTERS)[number]>("すべて");
+  // 完了はデータから取り除かず、タスク表示の既定の絞り込みからだけ外す。
+  const [taskStatus, setTaskStatus] = useState<TaskStatus>("incomplete");
   // 入力は「キーワード」と「#メタ情報」に分けて解釈する（規則は core/domain/memo/MemoQuery.ts）。
   const parsed = useMemo(() => parseMemoQuery(query), [query]);
   // アーカイブ済みは「検索したとき」だけ出す（docs/ui.md「組み込みタグ」）。
@@ -35,10 +42,14 @@ export function SearchPage({
       memos.filter(
         (m) =>
           matchesFilter(m, filter) &&
-          (filter === "アーカイブ" || searching || !m.archived) &&
+          matchesTaskStatus(m, filter, taskStatus) &&
+          (filter === "アーカイブ" ||
+            searching ||
+            !m.archived ||
+            (filter === "タスク" && taskStatus === "complete" && m.done)) &&
           matchesMemoQuery({ title: m.title, bodyText: m.body, metas: m.metas }, parsed),
       ),
-    [memos, parsed, filter, searching],
+    [memos, parsed, filter, searching, taskStatus],
   );
   return (
     <div className={standardPage}>
@@ -64,6 +75,23 @@ export function SearchPage({
             {f}
           </button>
         ))}
+        {filter === "タスク" && (
+          <span
+            className="flex items-center gap-1 border-l border-line pl-[9px]"
+            aria-label="タスクの完了状態"
+          >
+            {TASK_FILTERS.map((taskFilter) => (
+              <button
+                className={`cursor-pointer rounded-[7px] border border-transparent px-[11px] py-1.5 text-[11px] ${taskStatus === taskFilter.status ? "bg-[#e8f0ec] font-semibold text-[#527564]" : "bg-transparent text-muted"}`}
+                aria-pressed={taskStatus === taskFilter.status}
+                onClick={() => setTaskStatus(taskFilter.status)}
+                key={taskFilter.label}
+              >
+                {taskFilter.label}
+              </button>
+            ))}
+          </span>
+        )}
         {parsed.metas.length > 0 && (
           <span className="flex items-center gap-1.5 border-l border-line pl-[9px]">
             <MetaChips metas={parsed.metas} />
@@ -86,6 +114,14 @@ export function SearchPage({
       />
     </div>
   );
+}
+
+function matchesTaskStatus(
+  memo: Memo,
+  filter: (typeof FILTERS)[number],
+  status: TaskStatus,
+): boolean {
+  return filter !== "タスク" || memo.done === (status === "complete");
 }
 
 function matchesFilter(memo: Memo, filter: (typeof FILTERS)[number]): boolean {
