@@ -49,6 +49,7 @@ mod tests {
                     document_id: None,
                     metas: Vec::new(),
                     context: None,
+                    images: Vec::new(),
                 })
                 .unwrap();
         }

@@ -7,6 +7,14 @@ use crate::domain::meta::DocumentMetadata;
 
 /// document_type の値。
 pub const DOCUMENT_TYPE_MEMO: &str = "memo";
+pub const DOCUMENT_TYPE_IMAGE: &str = "image";
+
+/// minos でメモに添付する画像。`blob_uri` はローカルに保存した画像のパス。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImageAttachment {
+    pub name: String,
+    pub blob_uri: String,
+}
 
 /// 記録本体。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -15,6 +23,7 @@ pub struct DocumentAsset {
     pub workspace_id: String,
     pub title: String,
     pub body_text: String,
+    pub blob_uri: Option<String>,
     pub document_type: String,
     pub created_at: String,
     pub updated_at: String,
@@ -37,7 +46,27 @@ impl DocumentAsset {
             workspace_id: workspace_id.into(),
             title: derive_title(&body_text),
             body_text,
+            blob_uri: None,
             document_type: DOCUMENT_TYPE_MEMO.to_string(),
+            created_at: now.clone(),
+            updated_at: now,
+        }
+    }
+
+    pub fn image(
+        id: impl Into<String>,
+        workspace_id: impl Into<String>,
+        attachment: ImageAttachment,
+        now: impl Into<String>,
+    ) -> Self {
+        let now = now.into();
+        Self {
+            id: id.into(),
+            workspace_id: workspace_id.into(),
+            title: attachment.name,
+            body_text: String::new(),
+            blob_uri: Some(attachment.blob_uri),
+            document_type: DOCUMENT_TYPE_IMAGE.to_string(),
             created_at: now.clone(),
             updated_at: now,
         }

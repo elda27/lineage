@@ -7,6 +7,7 @@ import { Icon, primaryButton, quietButton, secondaryButton } from "@/shared/ui/k
 import { can, type Memo, type MemoActions } from "../service/memoView";
 import { MetaChips } from "./MetaChips";
 import { useMetaCompletion } from "./MetaCompletion";
+import { MemoImages } from "./MemoImages";
 
 export function MemoDetail({
   memo,
@@ -138,6 +139,7 @@ export function MemoDetail({
             <p className="border-b border-line pb-7 text-[13px] leading-[2] text-[#686a64]">
               {memo.body}
             </p>
+            <MemoImages images={memo.images} />
           </>
         )}
         <div className="mt-[25px] [&>div]:mb-[19px] [&>div]:grid [&>div]:grid-cols-[100px_1fr] [&>div]:items-start [&>div]:text-[11px] [&>div>span:first-child]:text-[#969791]">

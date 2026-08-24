@@ -5,7 +5,7 @@
 
 use anyhow::{Result, bail};
 
-use crate::domain::capture::{CaptureContext, DocumentAsset};
+use crate::domain::capture::{CaptureContext, DocumentAsset, ImageAttachment};
 use crate::domain::lineage::{LineageInput, LineageLedger, relation};
 use crate::domain::meta::{MetaAssignment, MetaSource, auto_label, parse_meta_tags};
 use crate::domain::ports::{CaptureStore, CaptureTx};
@@ -33,6 +33,8 @@ pub struct CaptureMemoInput {
     pub metas: Vec<MetaAssignment>,
     /// 直前に開いていたアプリケーションの情報（取得できた場合）。lineage の source になる。
     pub context: Option<CaptureContext>,
+    /// このメモに紐付ける画像。画像自身も document として lineage に記録する。
+    pub images: Vec<ImageAttachment>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -112,6 +114,11 @@ impl<'a> CaptureMemo<'a> {
         };
 
         let mut appended: Option<(i64, String)> = None;
+        let images = input
+            .images
+            .into_iter()
+            .map(|image| DocumentAsset::image(self.ids.new_id(), &input.workspace_id, image, &now))
+            .collect::<Vec<_>>();
 
         self.store.transact(&mut |tx: &mut dyn CaptureTx| {
             tx.ensure_workspace(&input.workspace_id, &input.workspace_name, &now)?;
@@ -138,8 +145,27 @@ impl<'a> CaptureMemo<'a> {
             let ledger = LineageLedger::new(self.hasher);
             let link = ledger.append_next(prev.as_ref(), self.ids.new_id(), lineage_input.clone());
             tx.append_link(&link)?;
+            let mut previous = link;
 
-            appended = Some((link.seq, link.content_hash.clone()));
+            for image in &images {
+                tx.insert_document(image)?;
+                let attachment_input = LineageInput {
+                    workspace_id: input.workspace_id.clone(),
+                    source_kind: TARGET_KIND_DOCUMENT.to_string(),
+                    source_id: image.id.clone(),
+                    target_kind: TARGET_KIND_DOCUMENT.to_string(),
+                    target_id: document.id.clone(),
+                    relation_type: relation::ATTACHMENT_FOR.to_string(),
+                    actor: LOCAL_ACTOR.to_string(),
+                    created_at: now.clone(),
+                };
+                let attachment_link =
+                    ledger.append_next(Some(&previous), self.ids.new_id(), attachment_input);
+                tx.append_link(&attachment_link)?;
+                previous = attachment_link;
+            }
+
+            appended = Some((previous.seq, previous.content_hash.clone()));
             Ok(())
         })?;
 
@@ -211,6 +237,7 @@ mod tests {
                     document_id: None,
                     metas,
                     context,
+                    images: Vec::new(),
                 })
                 .unwrap()
         }
@@ -245,6 +272,7 @@ mod tests {
                     process_name: "chrome.exe".into(),
                     window_title: "SOXL".into(),
                 }),
+                images: Vec::new(),
             })
             .unwrap();
 
@@ -262,6 +290,7 @@ mod tests {
                 document_id: None,
                 metas: vec![MetaAssignment::user("タスク", None)],
                 context: None,
+                images: Vec::new(),
             })
             .unwrap();
 
@@ -288,6 +317,31 @@ mod tests {
     }
 
     #[test]
+    fn stores_images_as_attachments_in_the_same_hash_chain() {
+        let f = Fixture::new();
+        let out = CaptureMemo::new(&f.db, &f.clock, &f.ids, &f.hasher)
+            .execute(CaptureMemoInput {
+                workspace_id: "ws".into(),
+                workspace_name: "minos".into(),
+                body: "画像付きメモ".into(),
+                document_id: None,
+                metas: Vec::new(),
+                context: None,
+                images: vec![ImageAttachment {
+                    name: "chart.png".into(),
+                    blob_uri: "/attachments/chart.png".into(),
+                }],
+            })
+            .unwrap();
+
+        let records = crate::domain::ports::LineageQuery::list(&f.db, "ws").unwrap();
+        assert_eq!(out.seq, 2);
+        assert_eq!(records[1].relation_type, relation::ATTACHMENT_FOR);
+        assert_eq!(records[1].target_id, out.document_id);
+        assert_eq!(records[1].prev_hash, records[0].content_hash);
+    }
+
+    #[test]
     fn rejects_an_empty_body() {
         let f = Fixture::new();
         let result =
@@ -298,6 +352,7 @@ mod tests {
                 document_id: None,
                 metas: Vec::new(),
                 context: None,
+                images: Vec::new(),
             });
         assert!(result.is_err());
     }
@@ -343,6 +398,7 @@ mod tests {
                 document_id: Some(first.document_id.clone()),
                 metas: vec![MetaAssignment::user("継続", None)],
                 context: None,
+                images: Vec::new(),
             })
             .unwrap();
 
