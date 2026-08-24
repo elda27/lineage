@@ -108,7 +108,7 @@ export function MemoDetail({
               <textarea
                 {...bodyCompletion.inputProps}
                 aria-label="本文（# でメタ情報を補完）"
-                className="min-h-[150px] w-full resize-y rounded-lg border border-[#deded8] p-3 text-xs leading-[1.8] outline-none"
+                className="min-h-[150px] w-full resize-y whitespace-pre-wrap rounded-lg border border-[#deded8] p-3 text-xs leading-[1.8] outline-none"
                 placeholder="# でメタ情報を補完"
               />
               {bodyCompletion.suggestionsElement}
@@ -135,7 +135,7 @@ export function MemoDetail({
             <h1 className="mb-[21px] font-serif text-[29px] font-normal leading-[1.45]">
               {memo.title}
             </h1>
-            <p className="border-b border-line pb-7 text-[13px] leading-[2] text-[#686a64]">
+            <p className="whitespace-pre-wrap border-b border-line pb-7 text-[13px] leading-[2] text-[#686a64]">
               {memo.body}
             </p>
           </>
