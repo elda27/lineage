@@ -13,9 +13,24 @@
   "app": {
     "windows": [
       {
+        "label": "startup",
+        "title": "fullos を起動中",
+        "url": "startup.html",
+        "width": 360,
+        "height": 140,
+        "center": true,
+        "resizable": false,
+        "maximizable": false,
+        "minimizable": false,
+        "closable": false,
+        "decorations": false
+      },
+      {
+        "label": "main",
         "title": "fullos",
         "width": 800,
-        "height": 600
+        "height": 600,
+        "visible": false
       }
     ],
     "security": {
@@ -41,13 +56,8 @@
       "wix": {
         "version": "0.0.6.0",
         "template": "wix/main.wxs",
-        "fragmentPaths": [
-          "wix/minos.wxs"
-        ],
-        "componentGroupRefs": [
-          "MinosShortcuts",
-          "MinosAutoStart"
-        ]
+        "fragmentPaths": ["wix/minos.wxs"],
+        "componentGroupRefs": ["MinosShortcuts", "MinosAutoStart"]
       }
     }
   },

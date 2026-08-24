@@ -11,6 +11,16 @@ const host = process.env.TAURI_DEV_HOST;
 export default defineConfig(async () => ({
   plugins: [react(), tailwindcss()],
 
+  // Tauri の起動ダイアログも本番バンドルへ含める。
+  build: {
+    rollupOptions: {
+      input: {
+        main: fileURLToPath(new URL("./index.html", import.meta.url)),
+        startup: fileURLToPath(new URL("./startup.html", import.meta.url)),
+      },
+    },
+  },
+
   // tsconfig.json の paths と同じ対応。片方だけ足すと型は通ってビルドが落ちる。
   resolve: {
     alias: {

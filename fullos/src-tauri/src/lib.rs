@@ -3,6 +3,19 @@ mod browser;
 mod schedule;
 mod skill;
 
+use tauri::Manager;
+
+#[tauri::command]
+fn browser_rendered(app: tauri::AppHandle) {
+    if let Some(main) = app.get_webview_window("main") {
+        _ = main.show();
+        _ = main.set_focus();
+    }
+    if let Some(startup) = app.get_webview_window("startup") {
+        _ = startup.close();
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -26,6 +39,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            browser_rendered,
             automation::automation_match,
             automation::automation_run,
             automation::automation_render,

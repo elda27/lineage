@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>fullos を起動中</title>
+    <style>
+      body {
+        margin: 0;
+        background: #f6f5ef;
+        color: #34352f;
+        font:
+          14px system-ui,
+          sans-serif;
+      }
+      main {
+        height: 140px;
+        display: grid;
+        place-content: center;
+        gap: 12px;
+        text-align: center;
+      }
+      .spinner {
+        width: 24px;
+        height: 24px;
+        margin: auto;
+        border: 3px solid #d7d5ca;
+        border-top-color: #66685f;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+      }
+      p {
+        margin: 0;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="spinner"></div>
+      <p>fullos を起動しています…</p>
+    </main>
+  </body>
+</html>

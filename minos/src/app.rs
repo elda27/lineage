@@ -5,6 +5,7 @@
 //! features はここより内側の実装を直接知らない。
 
 use std::rc::Rc;
+use std::thread;
 
 use anyhow::Result;
 
@@ -64,6 +65,35 @@ impl Services {
                 context,
             },
         )
+    }
+
+    /// 入力画面を待たせず、専用スレッドで1件を保存する。
+    ///
+    /// SQLite の接続は作成したスレッドで開く。UI が所有する接続を別スレッドへ
+    /// 渡さないことで、画面を先に閉じても保存のトランザクションは安全に継続できる。
+    pub fn capture_in_background(
+        body: String,
+        metas: Vec<MetaAssignment>,
+        context: Option<CaptureContext>,
+        document_id: Option<String>,
+    ) -> async_channel::Receiver<Result<CaptureMemoOutput>> {
+        let (sender, receiver) = async_channel::bounded(1);
+        thread::spawn(move || {
+            let result = Database::open_default().and_then(|database| {
+                CaptureMemo::new(&database, &SystemClock, &UuidGenerator, &Sha256Hasher).execute(
+                    CaptureMemoInput {
+                        workspace_id: DEFAULT_WORKSPACE_ID.to_string(),
+                        workspace_name: DEFAULT_WORKSPACE_NAME.to_string(),
+                        body,
+                        document_id,
+                        metas,
+                        context,
+                    },
+                )
+            });
+            _ = sender.send_blocking(result);
+        });
+        receiver
     }
 
     pub fn recent_memos(&self, limit: usize) -> Result<Vec<MemoSnapshot>> {
