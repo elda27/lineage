@@ -34,8 +34,6 @@ use crate::features::window::AppWindow;
 use crate::infra::system::foreground;
 use crate::infra::system::{ForegroundApp, SelectionCapture, launcher};
 
-/// 保存の手応えを見せてから引っ込むまでの時間。
-const HIDE_AFTER_SAVE: Duration = Duration::from_millis(700);
 /// 直前アプリへ Ctrl+C を送ってからクリップボードの更新を待つ上限。
 const CLIPBOARD_WAIT: Duration = Duration::from_millis(400);
 const CLIPBOARD_POLL: Duration = Duration::from_millis(20);
@@ -80,6 +78,7 @@ pub struct CaptureView {
     /// 直前にフォアグラウンドだったアプリ（Alt+Space を押した瞬間に観測したもの）。
     context: Option<ForegroundApp>,
     status: Option<Status>,
+    saving: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -124,6 +123,7 @@ impl CaptureView {
             editing_document_id: None,
             context: None,
             status: None,
+            saving: false,
             _subscriptions: subscriptions,
         }
     }
@@ -208,6 +208,11 @@ impl CaptureView {
 
     /// 入力を確定して保存する。
     fn submit(&mut self, keep_open: bool, window: &mut Window, cx: &mut Context<Self>) {
+        if self.saving {
+            self.status = Some(Status::Info("前のノートを保存しています".into()));
+            cx.notify();
+            return;
+        }
         let body = self.input.read(cx).value().to_string();
         if body.trim().is_empty() {
             self.status = Some(Status::Error("本文が空です".into()));
@@ -217,40 +222,83 @@ impl CaptureView {
 
         // Context is always persisted as metadata. CaptureMemo promotes it only when
         // the user explicitly entered `#app`.
-        let capture_context = self.capture_context();
+        let tags = self.tags.clone();
+        let images = self.images.clone();
+        let document_id = self.editing_document_id.clone();
+        let original_context = self.context.clone();
+        let result = Services::capture_in_background(
+            body.clone(),
+            tags.clone(),
+            self.capture_context(),
+            document_id.clone(),
+            images.clone(),
+        );
 
-        match self.services.capture(
-            body,
-            self.tags.clone(),
-            capture_context,
-            self.editing_document_id.clone(),
-            self.images.clone(),
-        ) {
-            Ok(output) => {
-                self.input
-                    .update(cx, |input, cx| input.set_value("", window, cx));
-                self.tags.clear();
-                self.images.clear();
-                self.editing_document_id = None;
-                self.status = Some(Status::Saved {
-                    title: output.title.into(),
-                    seq: output.seq,
-                });
-                if keep_open {
-                    // 同じアプリについて続けて記録できるよう、文脈と自動タグを引き継ぐ。
-                    self.refresh_auto_tags();
-                    self.input.update(cx, |input, cx| input.focus(window, cx));
-                }
-                cx.notify();
-                if !keep_open {
-                    self.hide_after_delay(cx);
-                }
-            }
-            Err(error) => {
-                self.status = Some(Status::Error(format!("保存できません: {error}").into()));
-                cx.notify();
-            }
+        // DB の完了を待たず、利用者には送信が済んだ状態を先に見せる。
+        self.input
+            .update(cx, |input, cx| input.set_value("", window, cx));
+        self.tags.clear();
+        self.images.clear();
+        self.editing_document_id = None;
+        self.saving = true;
+        self.status = Some(Status::Info("保存しています".into()));
+        if keep_open {
+            self.refresh_auto_tags();
+            self.input.update(cx, |input, cx| input.focus(window, cx));
+        } else {
+            self.app_window.hide();
         }
+        cx.notify();
+
+        let app_window = self.app_window.clone();
+        cx.spawn_in(window, async move |view, cx| {
+            let result = result.recv().await;
+            _ = view.update_in(cx, |this, window, cx| {
+                this.saving = false;
+                match result {
+                    Ok(Ok(output)) => {
+                        this.status = Some(Status::Saved {
+                            title: output.title.into(),
+                            seq: output.seq,
+                        });
+                        if !keep_open {
+                            this.clear_context();
+                            this.status = None;
+                        }
+                    }
+                    Ok(Err(error)) => {
+                        // 楽観的に消した編集内容を戻してから、再入力画面で失敗を伝える。
+                        this.tags = tags;
+                        this.images = images;
+                        this.editing_document_id = document_id;
+                        this.context = original_context;
+                        this.input.update(cx, |input, cx| {
+                            input.set_value(body, window, cx);
+                            input.focus(window, cx);
+                        });
+                        this.status =
+                            Some(Status::Error(format!("保存できません: {error}").into()));
+                        app_window.show();
+                    }
+                    Err(error) => {
+                        this.tags = tags;
+                        this.images = images;
+                        this.editing_document_id = document_id;
+                        this.context = original_context;
+                        this.input.update(cx, |input, cx| {
+                            input.set_value(body, window, cx);
+                            input.focus(window, cx);
+                        });
+                        this.status = Some(Status::Error(
+                            format!("保存結果を受け取れません: {error}").into(),
+                        ));
+                        app_window.show();
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     fn choose_images(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -467,21 +515,6 @@ impl CaptureView {
             })
             // 枠は上の v_flex が描くので、入力欄そのものは枠も余白も持たない。
             .child(Input::new(&self.input).appearance(false).px_0().py_0())
-    }
-
-    /// 保存の表示を残してからタスクトレイに戻す。
-    fn hide_after_delay(&mut self, cx: &mut Context<Self>) {
-        let app_window = self.app_window.clone();
-        cx.spawn(async move |view, cx| {
-            cx.background_executor().timer(HIDE_AFTER_SAVE).await;
-            app_window.hide();
-            _ = view.update(cx, |this, cx| {
-                this.clear_context();
-                this.status = None;
-                cx.notify();
-            });
-        })
-        .detach();
     }
 
     /// 明示操作での取り込み（自動取り込みが無効なときの手段）。
