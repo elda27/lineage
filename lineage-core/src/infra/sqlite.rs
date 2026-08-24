@@ -200,12 +200,13 @@ mod ledger_sql {
         tx.execute(
             "INSERT INTO documents
                  (id, workspace_id, title, body_text, blob_uri, document_type, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, NULL, ?5, ?6, ?7)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
                 document.id,
                 document.workspace_id,
                 document.title,
                 document.body_text,
+                document.blob_uri,
                 document.document_type,
                 document.created_at,
                 document.updated_at,

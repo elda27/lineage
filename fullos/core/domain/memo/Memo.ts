@@ -24,6 +24,14 @@ export type MetaAssignment = {
   value?: string;
 };
 
+/** minos がメモへ添付したローカル画像。 */
+export type MemoImage = {
+  id: string;
+  name: string;
+  /** minos の attachments ディレクトリにある画像の絶対パス。 */
+  path: string;
+};
+
 /** 記録本体。 */
 export type Memo = {
   id: string;
@@ -32,6 +40,7 @@ export type Memo = {
   title: string;
   bodyText: string;
   metas: MetaAssignment[];
+  images: MemoImage[];
   /**
    * 組み込みタグの機能が付けた状態（完了・アーカイブ・ゴミ箱）。
    *

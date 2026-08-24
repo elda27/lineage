@@ -44,6 +44,7 @@ export default function App() {
       body: "ここに内容を入力してください。",
       preview: "",
       metas: [],
+      images: [],
       createdAt: new Date().toISOString(),
       type: "memo",
       capabilities: [],

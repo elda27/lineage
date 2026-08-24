@@ -11,13 +11,14 @@
 //!   （自動で取り込むかはトレイメニューの設定で切り替える）
 //! - fullos をここから起動できる（トレイメニューの「fullos を起動」と同じ）
 
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::Duration;
 
 use gpui::prelude::*;
 use gpui::{
-    App, Context, Entity, Focusable, KeyBinding, MouseButton, SharedString, Subscription, Window,
-    actions, div, px,
+    App, Context, Entity, Focusable, KeyBinding, MouseButton, PathPromptOptions, SharedString,
+    Subscription, Window, actions, div, px,
 };
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::input::{Backspace, Escape, Input, InputEvent, InputState};
@@ -27,7 +28,7 @@ use lineage_core::domain::automation::MemoSnapshot;
 use lineage_core::domain::capture::CaptureContext;
 use lineage_core::domain::meta::{MetaAssignment, MetaSource, split_completed_tags};
 
-use crate::app::Services;
+use crate::app::{Services, is_supported_image};
 use crate::features::capture::meta_completion::{MetaCompletionProvider, selected_memo_id};
 use crate::features::window::AppWindow;
 use crate::infra::system::foreground;
@@ -72,6 +73,8 @@ pub struct CaptureView {
     ///
     /// 自動付与（直前のアプリ）とユーザ入力の両方が並ぶ。ここから消えたものは記録にも残らない。
     tags: Vec<MetaAssignment>,
+    /// 次の送信時にメモへ添付する画像（保存前は元ファイルのパス）。
+    images: Vec<PathBuf>,
     /// 選択中なら、次の送信はこのノートを更新する。
     editing_document_id: Option<String>,
     /// 直前にフォアグラウンドだったアプリ（Alt+Space を押した瞬間に観測したもの）。
@@ -117,6 +120,7 @@ impl CaptureView {
             app_window,
             input,
             tags: Vec::new(),
+            images: Vec::new(),
             editing_document_id: None,
             context: None,
             status: None,
@@ -220,11 +224,13 @@ impl CaptureView {
             self.tags.clone(),
             capture_context,
             self.editing_document_id.clone(),
+            self.images.clone(),
         ) {
             Ok(output) => {
                 self.input
                     .update(cx, |input, cx| input.set_value("", window, cx));
                 self.tags.clear();
+                self.images.clear();
                 self.editing_document_id = None;
                 self.status = Some(Status::Saved {
                     title: output.title.into(),
@@ -245,6 +251,40 @@ impl CaptureView {
                 cx.notify();
             }
         }
+    }
+
+    fn choose_images(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let receiver = cx.prompt_for_paths(PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: true,
+            prompt: Some("添付する画像を選択".into()),
+        });
+
+        cx.spawn_in(window, async move |view, cx| {
+            let Ok(Ok(Some(paths))) = receiver.await else {
+                return;
+            };
+            _ = view.update_in(cx, |this, _window, cx| {
+                let mut rejected = 0;
+                for path in paths {
+                    if !is_supported_image(&path) {
+                        rejected += 1;
+                    } else if !this.images.contains(&path) {
+                        this.images.push(path);
+                    }
+                }
+                if rejected > 0 {
+                    this.status = Some(Status::Error(
+                        "PNG、JPEG、GIF、WebP、BMP 形式の画像を選択してください".into(),
+                    ));
+                } else {
+                    this.status = None;
+                }
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     /// 空白で確定した `#タグ` を本文から取り除き、バッジへ移す。
@@ -357,6 +397,43 @@ impl CaptureView {
                             .hover(|style| style.text_color(cx.theme().foreground))
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 this.tags.retain(|tag| tag.label != label);
+                                cx.notify();
+                            }))
+                            .child("×"),
+                    )
+            }))
+    }
+
+    fn render_images(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        h_flex()
+            .gap_1()
+            .flex_wrap()
+            .children(self.images.iter().enumerate().map(|(index, path)| {
+                let name = path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or("image");
+                h_flex()
+                    .id(("remove-image", index))
+                    .px_2()
+                    .py_0p5()
+                    .gap_1()
+                    .rounded_md()
+                    .text_xs()
+                    .bg(cx.theme().secondary)
+                    .child(
+                        div()
+                            .max_w(px(180.))
+                            .truncate()
+                            .child(format!("画像: {name}")),
+                    )
+                    .child(
+                        div()
+                            .id(("remove-image-button", index))
+                            .cursor_pointer()
+                            .text_color(cx.theme().muted_foreground)
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.images.remove(index);
                                 cx.notify();
                             }))
                             .child("×"),
@@ -522,6 +599,9 @@ impl Render for CaptureView {
             .gap_3()
             .bg(cx.theme().background)
             .child(self.render_input_box(window, cx))
+            .when(!self.images.is_empty(), |this| {
+                this.child(self.render_images(cx))
+            })
             .child(
                 h_flex()
                     .justify_between()
@@ -532,6 +612,15 @@ impl Render for CaptureView {
                         h_flex()
                             .gap_2()
                             .items_center()
+                            .child(
+                                Button::new("attach-images")
+                                    .ghost()
+                                    .xsmall()
+                                    .label("画像を添付")
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.choose_images(window, cx)
+                                    })),
+                            )
                             .when(self.context.is_some(), |this| {
                                 this.child(
                                     Button::new("pull-foreground-text")
