@@ -221,6 +221,7 @@ impl Automation<'_> {
             workspace_id: rule.workspace_id.clone(),
             title: result_title(rule, memo),
             body_text: text.to_string(),
+            blob_uri: None,
             document_type: DOCUMENT_TYPE_AUTOMATION_RESULT.to_string(),
             created_at: now.clone(),
             updated_at: now.clone(),

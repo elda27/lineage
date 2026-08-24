@@ -8,6 +8,7 @@ import {
   bodyPreview,
   type MetaAssignment,
   type Memo as RecordedMemo,
+  type MemoImage,
 } from "@core/domain/memo/Memo";
 import { isArchived } from "@core/domain/memo/MemoState";
 
@@ -18,6 +19,7 @@ export type Memo = {
   body: string;
   preview: string;
   metas: MetaAssignment[];
+  images: MemoImage[];
   createdAt: string;
   /** 見た目（アイコンと「種類」の表示）を決める組み込みタグ。無ければ "memo" 扱い。 */
   type: BuiltinTagId;
@@ -49,6 +51,7 @@ export function toView(memo: RecordedMemo): Memo {
     // タイトルは本文1行目なので、一覧では続きだけを見せる。
     preview: bodyPreview(memo.bodyText),
     metas: memo.metas,
+    images: memo.images,
     createdAt: memo.createdAt,
     type: primaryBuiltinTag(memo.metas)?.id ?? "memo",
     capabilities: builtinCapabilities(memo.metas),

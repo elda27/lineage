@@ -4,17 +4,18 @@
 //! features 層（画面）には「何ができるか」だけを見せる。
 //! features はここより内側の実装を直接知らない。
 
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::thread;
 
-use anyhow::Result;
+use anyhow::{Context, Result, bail};
 
 use lineage_core::app::capture::{CaptureMemo, CaptureMemoInput, CaptureMemoOutput};
 use lineage_core::app::lineage::VerifyLineage;
 use lineage_core::app::meta::CompleteMetaTag;
 use lineage_core::app::settings::{LoadSettings, SaveSettings};
 use lineage_core::domain::automation::MemoSnapshot;
-use lineage_core::domain::capture::CaptureContext;
+use lineage_core::domain::capture::{CaptureContext, ImageAttachment};
 use lineage_core::domain::lineage::VerifyResult;
 use lineage_core::domain::meta::{MetaAssignment, MetaSuggestion};
 use lineage_core::domain::ports::MemoQuery;
@@ -54,17 +55,25 @@ impl Services {
         metas: Vec<MetaAssignment>,
         context: Option<CaptureContext>,
         document_id: Option<String>,
+        image_paths: Vec<PathBuf>,
     ) -> Result<CaptureMemoOutput> {
-        CaptureMemo::new(&self.database, &self.clock, &self.ids, &self.hasher).execute(
-            CaptureMemoInput {
+        let (images, copied_paths) = prepare_images(&image_paths)?;
+        let result = CaptureMemo::new(&self.database, &self.clock, &self.ids, &self.hasher)
+            .execute(CaptureMemoInput {
                 workspace_id: self.workspace_id.clone(),
                 workspace_name: DEFAULT_WORKSPACE_NAME.to_string(),
                 body,
                 document_id,
                 metas,
                 context,
-            },
-        )
+                images,
+            });
+        if result.is_err() {
+            for path in copied_paths {
+                _ = std::fs::remove_file(path);
+            }
+        }
+        result
     }
 
     /// 入力画面を待たせず、専用スレッドで1件を保存する。
@@ -76,20 +85,29 @@ impl Services {
         metas: Vec<MetaAssignment>,
         context: Option<CaptureContext>,
         document_id: Option<String>,
+        image_paths: Vec<PathBuf>,
     ) -> async_channel::Receiver<Result<CaptureMemoOutput>> {
         let (sender, receiver) = async_channel::bounded(1);
         thread::spawn(move || {
-            let result = Database::open_default().and_then(|database| {
-                CaptureMemo::new(&database, &SystemClock, &UuidGenerator, &Sha256Hasher).execute(
-                    CaptureMemoInput {
-                        workspace_id: DEFAULT_WORKSPACE_ID.to_string(),
-                        workspace_name: DEFAULT_WORKSPACE_NAME.to_string(),
-                        body,
-                        document_id,
-                        metas,
-                        context,
-                    },
-                )
+            let result = prepare_images(&image_paths).and_then(|(images, copied_paths)| {
+                let result = Database::open_default().and_then(|database| {
+                    CaptureMemo::new(&database, &SystemClock, &UuidGenerator, &Sha256Hasher)
+                        .execute(CaptureMemoInput {
+                            workspace_id: DEFAULT_WORKSPACE_ID.to_string(),
+                            workspace_name: DEFAULT_WORKSPACE_NAME.to_string(),
+                            body,
+                            document_id,
+                            metas,
+                            context,
+                            images,
+                        })
+                });
+                if result.is_err() {
+                    for path in copied_paths {
+                        _ = std::fs::remove_file(path);
+                    }
+                }
+                result
             });
             _ = sender.send_blocking(result);
         });
@@ -123,4 +141,56 @@ impl Services {
     pub fn verify_lineage(&self) -> Result<VerifyResult> {
         VerifyLineage::new(&self.database, &self.hasher).execute(&self.workspace_id)
     }
+}
+
+const IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "bmp"];
+
+pub fn is_supported_image(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| {
+            IMAGE_EXTENSIONS.contains(&extension.to_ascii_lowercase().as_str())
+        })
+}
+
+fn prepare_images(paths: &[PathBuf]) -> Result<(Vec<ImageAttachment>, Vec<PathBuf>)> {
+    for source in paths {
+        if !source.is_file() || !is_supported_image(source) {
+            bail!("対応していない画像です: {}", source.display());
+        }
+    }
+
+    let directory = dirs::data_local_dir()
+        .context("ローカルアプリケーションデータのディレクトリを特定できません")?
+        .join("minos")
+        .join("attachments");
+    std::fs::create_dir_all(&directory)
+        .with_context(|| format!("画像の保存先を作成できません: {}", directory.display()))?;
+
+    let mut images = Vec::with_capacity(paths.len());
+    let mut copied = Vec::with_capacity(paths.len());
+    for source in paths {
+        let name = source
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("image");
+        let extension = source
+            .extension()
+            .and_then(|value| value.to_str())
+            .unwrap_or("png");
+        let destination = directory.join(format!("{}.{}", uuid::Uuid::new_v4(), extension));
+        if let Err(error) = std::fs::copy(source, &destination) {
+            for path in copied {
+                _ = std::fs::remove_file(path);
+            }
+            return Err(error)
+                .with_context(|| format!("画像を添付できません: {}", source.display()));
+        }
+        images.push(ImageAttachment {
+            name: name.to_string(),
+            blob_uri: destination.to_string_lossy().into_owned(),
+        });
+        copied.push(destination);
+    }
+    Ok((images, copied))
 }

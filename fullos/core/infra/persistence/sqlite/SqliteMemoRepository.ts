@@ -1,4 +1,9 @@
-import { DOCUMENT_TYPE_MEMO, type Memo, type MetaAssignment } from "../../../domain/memo/Memo";
+import {
+  DOCUMENT_TYPE_MEMO,
+  type Memo,
+  type MemoImage,
+  type MetaAssignment,
+} from "../../../domain/memo/Memo";
 import { DEFAULT_MEMO_STATE } from "../../../domain/memo/MemoState";
 import type { MemoRepository } from "../../../domain/ports/MemoRepository";
 import { selectOrEmpty, type SqlHandle } from "./SqlHandle";
@@ -12,6 +17,13 @@ type MemoRow = {
   updated_at: string;
   label: string | null;
   value: string | null;
+};
+
+type ImageRow = {
+  memo_id: string;
+  id: string;
+  title: string;
+  blob_uri: string;
 };
 
 /**
@@ -41,7 +53,35 @@ export class SqliteMemoRepository implements MemoRepository {
       [workspaceId, DOCUMENT_TYPE_MEMO, limit],
     );
 
-    return groupByDocument(rows);
+    const memos = groupByDocument(rows);
+    if (memos.length === 0) return memos;
+
+    const images = await selectOrEmpty<ImageRow>(
+      this.db,
+      `SELECT l.target_id AS memo_id, image.id AS id, image.title AS title,
+              image.blob_uri AS blob_uri
+       FROM links l
+       JOIN documents image ON image.id = l.source_id
+       WHERE l.workspace_id = $1
+         AND l.source_kind = 'document'
+         AND l.target_kind = 'document'
+         AND l.relation_type = 'attachment_for'
+         AND image.document_type = 'image'
+         AND image.blob_uri IS NOT NULL
+         AND l.target_id IN (
+           SELECT id FROM documents
+           WHERE workspace_id = $1 AND document_type = $2
+           ORDER BY created_at DESC
+           LIMIT $3
+         )
+       ORDER BY l.seq ASC`,
+      [workspaceId, DOCUMENT_TYPE_MEMO, limit],
+    );
+    const byId = new Map(memos.map((memo) => [memo.id, memo]));
+    for (const row of images) {
+      byId.get(row.memo_id)?.images.push(toImage(row));
+    }
+    return memos;
   }
 }
 
@@ -57,6 +97,7 @@ function groupByDocument(rows: MemoRow[]): Memo[] {
         title: row.title,
         bodyText: row.body_text ?? "",
         metas: [],
+        images: [],
         // 組み込みタグの状態は document_states 側にあり、
         // ListMemos が MemoStateRepository の結果を重ねる。
         state: DEFAULT_MEMO_STATE,
@@ -71,6 +112,10 @@ function groupByDocument(rows: MemoRow[]): Memo[] {
   }
 
   return [...memos.values()];
+}
+
+function toImage(row: ImageRow): MemoImage {
+  return { id: row.id, name: row.title, path: row.blob_uri };
 }
 
 function toMetaTag(row: MemoRow): MetaAssignment {
