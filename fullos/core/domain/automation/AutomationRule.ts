@@ -84,6 +84,9 @@ export type AutomationRuleInput = Omit<
   id?: string;
 };
 
+/** 既存ルールの変更された項目だけを送る差分。 */
+export type AutomationRulePatch = Partial<Omit<AutomationRuleInput, "id">>;
+
 /** 実行1回の記録。 */
 export type AutomationRun = {
   id: string;

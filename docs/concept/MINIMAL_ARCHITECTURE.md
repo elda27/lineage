@@ -22,10 +22,10 @@ Tauri アプリも Web ビルドも、ローカル接続とクラウド接続の
 
 接続モードL: ローカル接続（in-process / 単一利用者）
   Frontend（主に Tauri webview）
-    └─ LocalAppClient（Application Service を in-process 呼び出し, TS）
-          └─ SqliteAssetRepository
-                └─ @tauri-apps/plugin-sql → SQLite ファイル
-  認証: なし。データはローカルに閉じる。
+    └─ LocalAppClient
+          ├─ 読み出し: SqliteRepository → @tauri-apps/plugin-sql → SQLite ファイル
+          └─ 書き込み: invoke(local_mutation_apply) → Rust mutation API → SQLite
+      認証: なし。データはローカルに閉じる。
 
 接続モードC: クラウド接続（HTTP / マルチ利用者・認証アリ）
   Frontend（Tauri webview でも、Cloudflare Pages の Web ビルドでも可）
@@ -41,7 +41,7 @@ Tauri アプリも Web ビルドも、ローカル接続とクラウド接続の
 ポイント:
 - domain / app 層は両モードで「同一の TS ソース」を再利用する。
 - frontend は「ApplicationPort」越しに呼ぶ。実装は2つ。
-    - LocalAppClient … in-process でアプリケーションサービスを直接呼ぶ（認証なし）
+    - LocalAppClient … 読み出しは in-process、書き込みは Rust mutation command を呼ぶ（認証なし）
     - HttpAppClient  … Workers の REST API を fetch する（JWT を付ける＝認証アリ）
 - Tauri アプリは「ローカル接続のみ」「クラウド接続のみ」「両方(切替/同期)」のいずれも構成可能。
   クラウドに接続する Tauri アプリは HttpAppClient を使うので、Web と同様に認証が必要になる。
@@ -57,7 +57,7 @@ Tauri アプリも Web ビルドも、ローカル接続とクラウド接続の
 | 関心事        | ローカル接続(モードL)         | クラウド接続(モードC)        |
 |---------------|------------------------------|------------------------------|
 | 代表的な実体  | Tauri デスクトップ           | Tauri or Web → Workers       |
-| API 層        | in-process 呼び出し          | Hono REST                    |
+| API 層        | 読み出し in-process / 書き込み Rust mutation command | Hono REST                    |
 | DB            | SQLite(@tauri-apps/plugin-sql)| Cloudflare D1               |
 | スキーマ      | schema.sql（共通）           | schema.sql（共通）           |
 | ファイル      | ローカル FS                  | R2                           |
@@ -125,7 +125,7 @@ lineage/
 │   └─ wrangler.toml
 │
 ├─ src-tauri/                   # ローカルエントリ（Tauri Rust shell）
-│   └─ ...                      #   plugin-sql を有効化。Rust 側は薄い
+│   └─ ...                      #   plugin-sql は読み出し用。書き込みは Rust mutation API
 │
 ├─ db/
 │   └─ schema.sql               # ★ SQLite/D1 共通スキーマ（migration の起点）
@@ -167,13 +167,18 @@ fullos/src-tauri/       # Tauri シェル。agentos.exe を同梱して呼び出
 
 fullos が lineage-core を直接リンクしないのは、tauri-plugin-sql(sqlx) と
 rusqlite がどちらも native の sqlite3 をリンクしていて同居できないため。
-結果として `links` への追記は minos と agentos の2か所だけになり、
-どちらも同じ lineage-core のコードを通る（4章の不変条件を保つ）。
-fullos の webview は plugin-sql で読み出しと、lineage を生まない行
-（automation_rules / settings / document_states）の書き込みだけを行う。
-document_states は組み込みタグの状態（完了・アーカイブ・ゴミ箱）で、記録そのものは
-変えず見せ方だけを変えるので鎖には載らない。削除も deleted_at を立てる論理削除にして、
-links の指す先が消えないようにしている。
+`links` への追記は minos と agentos の2か所に集約し、どちらも同じ lineage-core の
+コードを通す（4章の不変条件を保つ）。
+
+fullos の webview は plugin-sql で読み出す。書き込みは SQL を直接実行せず、Rust 側の
+差分 mutation API（Tauri command）を `invoke` して行う。Rust API は entity 全体を
+置き換える full update ではなく、変更部分だけの typed patch/delta を受け取り、
+検証・revision 採番・トランザクション・冪等性を所有する。
+
+組み込みタグの状態（完了・アーカイブ・ゴミ箱）は `document_states` に持ち、記録そのものは
+変えず見せ方だけを変えるので鎖には載らない。削除も `deleted_at` を立てる論理削除にして、
+`links` の指す先が消えないようにする。この状態更新を含む FullOS 管理データの書き込みは
+Rust API の責務であり、plugin-sql の書き込み capability を前提にしない。
 
 ---
 
@@ -404,9 +409,12 @@ D1 マイグレーション: `wrangler d1 migrations apply lineage`（db/schema.
 
 ---
 
-6. ローカル実装: Tauri + SQLite（plugin-sql）
+6. ローカル実装: Tauri + SQLite（読み出し plugin-sql / 書き込み Rust API）
 
-Rust 側は薄く、SQLite アクセスは JS から @tauri-apps/plugin-sql で行う。
+FullOS のローカル接続では、SQLite の読み出しに `@tauri-apps/plugin-sql` を使い、
+書き込みは Rust 側の mutation API に集約する。WebView から SQL の `INSERT` / `UPDATE` /
+`DELETE` は実行しない。Rust API の内部実装は SQLite の接続競合を避ける境界に置き、
+WebView からは Tauri command の入力・出力契約だけを参照する。
 
 src-tauri/Cargo.toml に依存追加:
   tauri-plugin-sql = { version = "2", features = ["sqlite"] }
@@ -418,24 +426,39 @@ src-tauri/src/lib.rs:
 LocalAppClient（src/shared/api/LocalAppClient.ts）
 
 import Database from "@tauri-apps/plugin-sql";
-import { SqliteAssetRepository, SqliteLineageRepository } from "@core/infra/persistence/sqlite";
-import { Sha256Hasher } from "@core/infra/crypto/Sha256Hasher";
-import { WriteMemo } from "@core/app/WriteMemo";
+import { invoke } from "@tauri-apps/api/core";
+import { SqliteMemoRepository } from "@core/infra/persistence/sqlite";
 
 export async function createLocalAppClient(): Promise<ApplicationPort> {
   const db = await Database.load("sqlite:lineage.db"); // schema.sql を初回適用
-  const assets = new SqliteAssetRepository(db);
-  const lineage = new SqliteLineageRepository(db);
-  const hasher = new Sha256Hasher();
+  const memos = new SqliteMemoRepository(db); // 読み出し専用
   return {
-    writeMemo: (i) => new WriteMemo(assets, lineage, hasher).execute(i),
-    verifyLineage: (id) => new VerifyLineage(lineage, hasher).execute(id),
-    // ...他ユースケースも同様に in-process で呼ぶ
+    listMemos: (limit) => memos.list("local", limit),
+    setMemoDone: (memoId, done) =>
+      invoke("local_mutation_apply", {
+        request: {
+          operationId: crypto.randomUUID(),
+          workspaceId: "local",
+          operation: {
+            type: "memo_state_patch",
+            memoId,
+            patch: { done },
+          },
+        },
+      }),
+    // 他の書き込みも同じ typed patch/delta API を使う。
   };
 }
 
-ローカルでもクラウドでも WriteMemo / LineageLedger は同一コードなので、
-真正性(hash-chain)の振る舞いは完全に一致する。
+mutation API の `operationId` はリトライ時の二重適用を防ぐ冪等キー、`baseRevision` は
+Rust 側が管理する entity 単位の単調増加 revision に対する競合検出値である。指定された
+`baseRevision` が一致しない更新は受け付けず、成功した更新だけを1トランザクションで
+revision とともに確定する。既存ローカル UI の移行中は省略可能だが、revision を返す read
+model と同期・remote adapter では必須にする。mutation の operationId、entity、status、patch、
+baseRevision、作成日時は `local_mutations` に保存し、同期対象は `applied` の delta に限定する。
+
+Lineage を生む記録の確定は引き続き lineage-core を共有する minos / agentos が担い、
+FullOS の状態・設定・ルール更新は Rust mutation API が担う。
 
 ---
 
@@ -471,6 +494,18 @@ GET   /api/workspaces/:id/lineage/verify   # hash-chain 検証
 ローカル(Tauri)では同じ操作を ApplicationPort のメソッドとして in-process 提供する
 （HTTP は介さない）。
 
+FullOS のローカル書き込みは `local_mutation_apply` command に集約する。入力は次の
+mutation 契約を基本とし、entity 全体の JSON を送る full update は行わない。
+
+```text
+{ operationId, workspaceId, baseRevision, operation }
+```
+
+`operationId` は冪等キー、`baseRevision` は Rust が採番する per-entity revision に対する
+楽観的競合検出値である。Rust は検証、必要な複数テーブル更新、revision の増加を1 transaction
+で確定し、競合時は `conflict` を返す。mutation の受理結果は `local_mutations` に記録し、
+将来は `applied` の delta から local/server 同期用の outbox を追加できる境界にする。
+
 ---
 
 9. 画面
@@ -487,7 +522,7 @@ GET   /api/workspaces/:id/lineage/verify   # hash-chain 検証
 
 1. db/schema.sql と core/domain（Asset / Lineage / LineageLedger）
 2. SqliteAssetRepository / SqliteLineageRepository（ローカル先行）
-3. Tauri plugin-sql + LocalAppClient で WriteMemo を通す
+3. Rust mutation API + LocalAppClient で FullOS の差分更新を通す
 4. VerifyLineage（真正性チェック）を UI から呼べるようにする
 5. Hono + D1 で同じ application を Workers に載せる（HttpAppClient）
 6. Supabase Auth（クラウドのみ）

@@ -15,10 +15,12 @@
 use std::io::{Read, Write};
 use std::path::PathBuf;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, ensure};
 use clap::{Args, Parser, Subcommand};
 use lineage_core::app::automation::{Automation, reject_browser_backend};
+use lineage_core::app::mutation::ApplyMutation;
 use lineage_core::domain::automation::{AutomationRule, AutomationRun, RunStatus};
+use lineage_core::domain::mutation::MutationRequest;
 use lineage_core::domain::ports::{AutomationRuleQuery, LineageQuery};
 use lineage_core::infra::anthropic::AnthropicBackend;
 use lineage_core::infra::clock::{SystemClock, UuidGenerator};
@@ -108,6 +110,15 @@ enum Command {
     Rules,
     /// hash-chain を検証する。
     Verify,
+    /// FullOS などから受け取った差分更新を適用する。
+    ///
+    /// リクエスト本体は標準入力（`-`）またはファイルから JSON で読む。
+    /// DB の書き込みは lineage-core の application service に集約する。
+    Apply {
+        /// 差分更新 JSON のファイル。`-` で標準入力。
+        #[arg(long, value_name = "PATH")]
+        request_file: String,
+    },
     /// API キーなどの資格情報を OS の資格情報ストアで扱う。
     #[command(subcommand)]
     Credential(CredentialCommand),
@@ -171,6 +182,7 @@ fn dispatch(cli: &Cli) -> Result<i32> {
         }
         Command::Rules => session.rules(),
         Command::Verify => session.verify(),
+        Command::Apply { request_file } => session.apply(request_file),
         // 上で処理済み。
         Command::Credential(_) => unreachable!(),
     }
@@ -373,6 +385,27 @@ impl Session {
             println!("{result:?}");
         }
         Ok(if result.is_ok() { 0 } else { EXIT_NOT_SUCCEEDED })
+    }
+
+    /// 差分更新を JSON で受け取り、共有 application service へ渡す。
+    ///
+    /// FullOS から呼ばれる場合も本文は標準入力で渡す。メモ本文やタグをコマンド
+    /// ライン引数に載せないことで、シェルの quoting とプロセス一覧への露出を避ける。
+    fn apply(&self, request_file: &str) -> Result<i32> {
+        let text = read_result(request_file)?;
+        let request: MutationRequest = serde_json::from_str(&text)
+            .context("差分更新リクエストの JSON を解釈できません")?;
+        ensure!(
+            request.workspace_id == self.workspace,
+            "request の workspaceId が --workspace と一致しません"
+        );
+        let result = ApplyMutation {
+            store: &self.database,
+            clock: &self.clock,
+        }
+        .execute(request)?;
+        self.print_json(&result)?;
+        Ok(0)
     }
 
     fn require_rule(&self, rule_id: &str) -> Result<AutomationRule> {

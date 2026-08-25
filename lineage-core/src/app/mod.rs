@@ -13,4 +13,5 @@ pub mod automation;
 pub mod capture;
 pub mod lineage;
 pub mod meta;
+pub mod mutation;
 pub mod settings;

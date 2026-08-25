@@ -6,8 +6,10 @@
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
-use rusqlite::{Connection, OptionalExtension, Row, params};
+use anyhow::{Context, Result, ensure};
+use rusqlite::{
+    Connection, OptionalExtension, Row, TransactionBehavior, params, params_from_iter,
+};
 
 use crate::domain::automation::{
     AutomationRule, AutomationRun, BackendConfig, BackendKind, MemoSnapshot, RunStatus, Trigger,
@@ -16,9 +18,13 @@ use crate::domain::automation::{
 use crate::domain::capture::{DOCUMENT_TYPE_MEMO, DocumentAsset};
 use crate::domain::lineage::LineageRecord;
 use crate::domain::meta::{DocumentMetadata, MetaAssignment, MetaSource, MetaTag};
+use crate::domain::mutation::{
+    MutationOperation, MutationRequest, MutationResult, MutationStatus, NullablePatch,
+};
 use crate::domain::ports::{
     AutomationRuleQuery, AutomationRunStore, AutomationStore, AutomationTx, CaptureStore,
-    CaptureTx, LedgerTx, LineageQuery, MemoQuery, MetaTagQuery, SettingsRepository, TagRepository,
+    CaptureTx, LedgerTx, LineageQuery, MemoQuery, MetaTagQuery, MutationStore,
+    SettingsRepository, TagRepository,
 };
 use crate::domain::tag::{AutomationBinding, TagDefinition, TagKind, ViewBinding};
 
@@ -30,8 +36,9 @@ const DATABASE_FILE_NAME: &str = "lineage.db";
 
 /// 接続を1本だけ持つローカルストア。
 ///
-/// minos は単一利用者・単一プロセスなので接続は1本で足りる。
-/// gpui のメインスレッドから同期的に呼ぶ前提のため `RefCell` で足りる。
+/// 各 minos / agentos プロセス内では接続は1本で足りる。プロセス間の競合は WAL、
+/// busy timeout、immediate transaction で調停する。gpui のメインスレッドから同期的に
+/// 呼ぶ前提のため、プロセス内の所有には `RefCell` を使う。
 pub struct Database {
     conn: RefCell<Connection>,
 }
@@ -67,9 +74,9 @@ impl Database {
 
     fn from_connection(mut conn: Connection) -> Result<Self> {
         conn.execute_batch(
-            "PRAGMA journal_mode = WAL;
-             PRAGMA synchronous = NORMAL;
-             PRAGMA busy_timeout = 3000;",
+            "PRAGMA busy_timeout = 3000;
+             PRAGMA journal_mode = WAL;
+             PRAGMA synchronous = NORMAL;",
         )?;
         apply_schema(&mut conn, SCHEMA_SQL)?;
         Ok(Self {
@@ -81,9 +88,10 @@ impl Database {
 /// 互換更新と現行スキーマを同じトランザクションで適用する。
 fn apply_schema(conn: &mut Connection, schema_sql: &str) -> Result<()> {
     let tx = conn
-        .transaction()
+        .transaction_with_behavior(TransactionBehavior::Immediate)
         .context("スキーマ更新トランザクションを開始できません")?;
     upgrade_automation_runs(&tx).context("既存 automation_runs の更新に失敗しました")?;
+    upgrade_local_mutations(&tx).context("既存 local_mutations の更新に失敗しました")?;
     tx.execute_batch(schema_sql)
         .context("スキーマの適用に失敗しました")?;
     tx.commit()
@@ -168,6 +176,49 @@ fn upgrade_automation_runs(tx: &rusqlite::Transaction<'_>) -> Result<()> {
 
     for statement in missing {
         tx.execute_batch(statement)?;
+    }
+    Ok(())
+}
+
+/// 差分 mutation API の初期版で作られた台帳へ receipt 列を補う。
+///
+/// `CREATE TABLE IF NOT EXISTS` だけでは既存表に列が増えず、status index の作成時に
+/// 起動できなくなる。既存行はすべて適用済み mutation なので `applied` として移行する。
+fn upgrade_local_mutations(tx: &rusqlite::Transaction<'_>) -> Result<()> {
+    let table_exists: bool = tx.query_row(
+        "SELECT EXISTS(
+             SELECT 1 FROM sqlite_master
+              WHERE type = 'table' AND name = 'local_mutations'
+         )",
+        [],
+        |row| row.get(0),
+    )?;
+    if !table_exists {
+        return Ok(());
+    }
+
+    let existing_columns = {
+        let mut statement = tx.prepare("PRAGMA table_info(local_mutations)")?;
+        statement
+            .query_map([], |row| row.get::<_, String>(1))?
+            .collect::<rusqlite::Result<Vec<_>>>()?
+    };
+    const ADDED_COLUMNS: [(&str, &str); 2] = [
+        ("actor", "TEXT NOT NULL DEFAULT 'local'"),
+        (
+            "status",
+            "TEXT NOT NULL DEFAULT 'applied' CHECK (status IN ('applied', 'conflict'))",
+        ),
+    ];
+    for (name, definition) in ADDED_COLUMNS {
+        if !existing_columns
+            .iter()
+            .any(|column| column.eq_ignore_ascii_case(name))
+        {
+            tx.execute_batch(&format!(
+                "ALTER TABLE local_mutations ADD COLUMN {name} {definition};"
+            ))?;
+        }
     }
     Ok(())
 }
@@ -459,53 +510,6 @@ impl TagRepository for Database {
             params![id], row_to_tag_definition).optional()?)
     }
 
-    fn rename(&self, id: &str, name: &str, shorthand: Option<&str>, now: &str) -> Result<()> {
-        self.conn.borrow().execute("UPDATE tag_definitions SET display_name=?2,shorthand=?3,updated_at=?4 WHERE id=?1 AND kind='user'", params![id,name,shorthand,now])?;
-        Ok(())
-    }
-    fn soft_delete(&self, id: &str, now: &str) -> Result<()> {
-        self.conn.borrow().execute("UPDATE tag_definitions SET deleted_at=?2,enabled=0,updated_at=?2 WHERE id=?1 AND kind='user'", params![id,now])?;
-        Ok(())
-    }
-    fn set_enabled(&self, id: &str, enabled: bool, now: &str) -> Result<()> {
-        self.conn.borrow().execute(
-            "UPDATE tag_definitions SET enabled=?2,updated_at=?3 WHERE id=?1",
-            params![id, enabled, now],
-        )?;
-        Ok(())
-    }
-    fn set_view_binding(
-        &self,
-        binding: Option<&ViewBinding>,
-        tag_id: &str,
-        now: &str,
-    ) -> Result<()> {
-        let conn = self.conn.borrow();
-        if let Some(b) = binding {
-            conn.execute("INSERT INTO view_bindings(tag_id,view_id,updated_at) VALUES(?1,?2,?3) ON CONFLICT(tag_id) DO UPDATE SET view_id=excluded.view_id,updated_at=excluded.updated_at",params![tag_id,b.view_id,now])?;
-        } else {
-            conn.execute("DELETE FROM view_bindings WHERE tag_id=?1", params![tag_id])?;
-        }
-        Ok(())
-    }
-    fn set_automation_binding(
-        &self,
-        binding: Option<&AutomationBinding>,
-        tag_id: &str,
-        now: &str,
-    ) -> Result<()> {
-        let conn = self.conn.borrow();
-        if let Some(b) = binding {
-            let ownership = if b.managed { "managed" } else { "external" };
-            conn.execute("INSERT INTO automation_bindings(tag_id,recipe_name,ownership,enabled,updated_at) VALUES(?1,?2,?3,?4,?5) ON CONFLICT(tag_id) DO UPDATE SET recipe_name=excluded.recipe_name,ownership=excluded.ownership,enabled=excluded.enabled,updated_at=excluded.updated_at",params![tag_id,b.recipe_name,ownership,b.enabled,now])?;
-        } else {
-            conn.execute(
-                "DELETE FROM automation_bindings WHERE tag_id=?1",
-                params![tag_id],
-            )?;
-        }
-        Ok(())
-    }
 }
 
 fn row_to_tag_definition(row: &Row<'_>) -> rusqlite::Result<TagDefinition> {
@@ -546,18 +550,505 @@ impl SettingsRepository for Database {
             .collect::<rusqlite::Result<Vec<_>>>()?;
         Ok(entries)
     }
+}
 
-    fn set(&self, workspace_id: &str, key: &str, value: &str, now: &str) -> Result<()> {
-        let conn = self.conn.borrow();
-        conn.execute(
-            "INSERT INTO settings (workspace_id, key, value, updated_at)
-             VALUES (?1, ?2, ?3, ?4)
-             ON CONFLICT(workspace_id, key)
-             DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
-            params![workspace_id, key, value, now],
+impl MutationStore for Database {
+    fn apply_mutation(
+        &self,
+        request: &MutationRequest,
+        recorded_at: &str,
+    ) -> Result<MutationResult> {
+        let entity_kind = request.operation.entity_kind();
+        let entity_id = request
+            .operation
+            .entity_id(&request.workspace_id)
+            .context("mutation の entity ID が確定していません")?;
+        let operation_kind = request.operation.operation_kind();
+        let payload_json = serde_json::to_string(&request.operation)?;
+
+        let mut conn = self.conn.borrow_mut();
+        // FullOS は mutation ごとに agentos sidecar を起動する。deferred transaction の
+        // read -> write upgrade が競合すると busy_timeout を待たず SQLITE_BUSY になり得るため、
+        // 最初に書き込み予約を取り、別 writer とは busy_timeout の範囲で直列化する。
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+
+        let prior = tx
+            .query_row(
+                "SELECT workspace_id, entity_kind, entity_id, operation_kind, status, payload_json,
+                        base_revision, resulting_revision, created_at
+                   FROM local_mutations WHERE operation_id = ?1",
+                params![request.operation_id],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, String>(4)?,
+                        row.get::<_, String>(5)?,
+                        row.get::<_, Option<i64>>(6)?,
+                        row.get::<_, i64>(7)?,
+                        row.get::<_, String>(8)?,
+                    ))
+                },
+            )
+            .optional()?;
+        if let Some((workspace, kind, id, operation, status, payload, base, revision, created_at)) =
+            prior
+        {
+            ensure!(
+                workspace == request.workspace_id
+                    && kind == entity_kind
+                    && id == entity_id
+                    && operation == operation_kind
+                    && payload == payload_json
+                    && base == request.base_revision,
+                "operationId `{}` は別の mutation ですでに使われています",
+                request.operation_id
+            );
+            return Ok(MutationResult {
+                operation_id: request.operation_id.clone(),
+                status: match status.as_str() {
+                    "applied" => MutationStatus::Duplicate,
+                    "conflict" => MutationStatus::Conflict,
+                    other => anyhow::bail!("未知の mutation status です: {other}"),
+                },
+                entity_kind: kind,
+                entity_id: id,
+                revision,
+                recorded_at: created_at,
+            });
+        }
+
+        let current_revision = tx
+            .query_row(
+                "SELECT revision FROM entity_revisions
+                  WHERE workspace_id = ?1 AND entity_kind = ?2 AND entity_id = ?3",
+                params![request.workspace_id, entity_kind, entity_id],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()?
+            .unwrap_or(0);
+
+        if request
+            .base_revision
+            .is_some_and(|base| base != current_revision)
+        {
+            tx.execute(
+                "INSERT INTO local_mutations
+                     (operation_id, workspace_id, entity_kind, entity_id, actor, operation_kind,
+                      status, payload_json, base_revision, resulting_revision, created_at)
+                 VALUES (?1, ?2, ?3, ?4, 'local', ?5, 'conflict', ?6, ?7, ?8, ?9)",
+                params![
+                    request.operation_id,
+                    request.workspace_id,
+                    entity_kind,
+                    entity_id,
+                    operation_kind,
+                    payload_json,
+                    request.base_revision,
+                    current_revision,
+                    recorded_at,
+                ],
+            )?;
+            tx.commit()?;
+            return Ok(MutationResult {
+                operation_id: request.operation_id.clone(),
+                status: MutationStatus::Conflict,
+                entity_kind: entity_kind.into(),
+                entity_id: entity_id.into(),
+                revision: current_revision,
+                recorded_at: recorded_at.into(),
+            });
+        }
+
+        apply_operation(&tx, &request.workspace_id, &request.operation, recorded_at)?;
+
+        let revision = current_revision + 1;
+        tx.execute(
+            "INSERT INTO entity_revisions
+                 (workspace_id, entity_kind, entity_id, revision, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(workspace_id, entity_kind, entity_id)
+             DO UPDATE SET revision = excluded.revision, updated_at = excluded.updated_at",
+            params![
+                request.workspace_id,
+                entity_kind,
+                entity_id,
+                revision,
+                recorded_at
+            ],
         )?;
-        Ok(())
+        tx.execute(
+            "INSERT INTO local_mutations
+                 (operation_id, workspace_id, entity_kind, entity_id, actor, operation_kind,
+                  status, payload_json, base_revision, resulting_revision, created_at)
+             VALUES (?1, ?2, ?3, ?4, 'local', ?5, 'applied', ?6, ?7, ?8, ?9)",
+            params![
+                request.operation_id,
+                request.workspace_id,
+                entity_kind,
+                entity_id,
+                operation_kind,
+                payload_json,
+                request.base_revision,
+                revision,
+                recorded_at,
+            ],
+        )?;
+        tx.commit()?;
+
+        Ok(MutationResult {
+            operation_id: request.operation_id.clone(),
+            status: MutationStatus::Applied,
+            entity_kind: entity_kind.into(),
+            entity_id: entity_id.into(),
+            revision,
+            recorded_at: recorded_at.into(),
+        })
     }
+}
+
+fn apply_operation(
+    tx: &rusqlite::Transaction<'_>,
+    workspace_id: &str,
+    operation: &MutationOperation,
+    now: &str,
+) -> Result<()> {
+    match operation {
+        MutationOperation::MemoStatePatch { memo_id, patch } => {
+            ensure_document_exists(tx, workspace_id, memo_id)?;
+            if let Some(done) = patch.done {
+                tx.execute(
+                    "INSERT INTO document_states
+                         (document_id, workspace_id, done, done_at, updated_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5)
+                     ON CONFLICT(document_id) DO UPDATE
+                       SET done = excluded.done,
+                           done_at = excluded.done_at,
+                           updated_at = excluded.updated_at",
+                    params![memo_id, workspace_id, done, done.then_some(now), now],
+                )?;
+            }
+            if let Some(archived) = patch.archived {
+                tx.execute(
+                    "INSERT INTO document_states
+                         (document_id, workspace_id, archived_at, updated_at)
+                     VALUES (?1, ?2, ?3, ?4)
+                     ON CONFLICT(document_id) DO UPDATE
+                       SET archived_at = excluded.archived_at,
+                           updated_at = excluded.updated_at",
+                    params![
+                        memo_id,
+                        workspace_id,
+                        archived.then_some(now),
+                        now
+                    ],
+                )?;
+            }
+            if let Some(trashed) = patch.trashed {
+                tx.execute(
+                    "INSERT INTO document_states
+                         (document_id, workspace_id, deleted_at, updated_at)
+                     VALUES (?1, ?2, ?3, ?4)
+                     ON CONFLICT(document_id) DO UPDATE
+                       SET deleted_at = excluded.deleted_at,
+                           updated_at = excluded.updated_at",
+                    params![memo_id, workspace_id, trashed.then_some(now), now],
+                )?;
+            }
+        }
+        MutationOperation::ArchiveCompletedTasks { labels } => {
+            let placeholders = std::iter::repeat_n("?", labels.len())
+                .collect::<Vec<_>>()
+                .join(", ");
+            let sql = format!(
+                "UPDATE document_states
+                    SET archived_at = ?1, updated_at = ?1
+                  WHERE workspace_id = ?2
+                    AND done = 1
+                    AND archived_at IS NULL
+                    AND deleted_at IS NULL
+                    AND document_id IN (
+                      SELECT meta.document_id
+                        FROM document_meta AS meta
+                        JOIN documents AS document ON document.id = meta.document_id
+                       WHERE document.workspace_id = ?2
+                         AND document.document_type = ?3
+                         AND lower(meta.label) IN ({placeholders})
+                    )"
+            );
+            let mut values = vec![
+                rusqlite::types::Value::Text(now.into()),
+                rusqlite::types::Value::Text(workspace_id.into()),
+                rusqlite::types::Value::Text(DOCUMENT_TYPE_MEMO.into()),
+            ];
+            values.extend(
+                labels
+                    .iter()
+                    .map(|label| rusqlite::types::Value::Text(label.to_lowercase())),
+            );
+            tx.execute(&sql, params_from_iter(values))?;
+        }
+        MutationOperation::TagPatch { tag_id, patch } => {
+            let kind = require_tag_kind(tx, workspace_id, tag_id)?;
+            if let Some(display_name) = &patch.display_name {
+                ensure!(kind == "user", "組み込みタグの displayName は変更できません");
+                tx.execute(
+                    "UPDATE tag_definitions SET display_name = ?2 WHERE id = ?1",
+                    params![tag_id, display_name],
+                )?;
+            }
+            match &patch.shorthand {
+                NullablePatch::Unchanged => {}
+                NullablePatch::Clear => {
+                    tx.execute(
+                        "UPDATE tag_definitions SET shorthand = NULL WHERE id = ?1",
+                        params![tag_id],
+                    )?;
+                }
+                NullablePatch::Set(value) => {
+                    tx.execute(
+                        "UPDATE tag_definitions SET shorthand = ?2 WHERE id = ?1",
+                        params![tag_id, value],
+                    )?;
+                }
+            }
+            if let Some(enabled) = patch.enabled {
+                tx.execute(
+                    "UPDATE tag_definitions SET enabled = ?2 WHERE id = ?1",
+                    params![tag_id, enabled],
+                )?;
+            }
+            match &patch.view {
+                NullablePatch::Unchanged => {}
+                NullablePatch::Clear => {
+                    tx.execute("DELETE FROM view_bindings WHERE tag_id = ?1", params![tag_id])?;
+                }
+                NullablePatch::Set(view) => {
+                    tx.execute(
+                        "INSERT INTO view_bindings(tag_id, view_id, updated_at)
+                         VALUES (?1, ?2, ?3)
+                         ON CONFLICT(tag_id) DO UPDATE
+                           SET view_id = excluded.view_id, updated_at = excluded.updated_at",
+                        params![tag_id, view, now],
+                    )?;
+                }
+            }
+            match &patch.recipe {
+                NullablePatch::Unchanged => {}
+                NullablePatch::Clear => {
+                    tx.execute(
+                        "DELETE FROM automation_bindings WHERE tag_id = ?1",
+                        params![tag_id],
+                    )?;
+                }
+                NullablePatch::Set(recipe) => {
+                    let ownership = if recipe.managed { "managed" } else { "external" };
+                    tx.execute(
+                        "INSERT INTO automation_bindings
+                             (tag_id, recipe_name, ownership, enabled, updated_at)
+                         VALUES (?1, ?2, ?3, 1, ?4)
+                         ON CONFLICT(tag_id) DO UPDATE
+                           SET recipe_name = excluded.recipe_name,
+                               ownership = excluded.ownership,
+                               enabled = excluded.enabled,
+                               updated_at = excluded.updated_at",
+                        params![tag_id, recipe.name, ownership, now],
+                    )?;
+                }
+            }
+            tx.execute(
+                "UPDATE tag_definitions SET updated_at = ?2 WHERE id = ?1",
+                params![tag_id, now],
+            )?;
+        }
+        MutationOperation::TagDelete { tag_id } => {
+            require_tag_kind(tx, workspace_id, tag_id)?;
+            let changed = tx.execute(
+                "UPDATE tag_definitions
+                    SET deleted_at = ?2, enabled = 0, updated_at = ?2
+                  WHERE id = ?1 AND kind = 'user'",
+                params![tag_id, now],
+            )?;
+            ensure!(changed == 1, "組み込みタグは削除できません");
+        }
+        MutationOperation::AutomationRuleCreate { rule_id, input } => {
+            let rule_id = rule_id
+                .as_deref()
+                .context("automation rule ID が確定していません")?;
+            tx.execute(
+                "INSERT INTO automation_rules
+                     (id, workspace_id, name, description, prompt, backend_kind, backend_config,
+                      trigger_kind, trigger_config, enabled, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11)",
+                params![
+                    rule_id,
+                    workspace_id,
+                    input.name,
+                    input.description,
+                    input.prompt,
+                    input.backend.as_str(),
+                    serde_json::to_string(&input.backend_config)?,
+                    input.trigger_kind.as_str(),
+                    serde_json::to_string(&input.trigger)?,
+                    input.enabled,
+                    now,
+                ],
+            )?;
+        }
+        MutationOperation::AutomationRulePatch { rule_id, patch } => {
+            require_automation_rule(tx, workspace_id, rule_id)?;
+            if let Some(name) = &patch.name {
+                tx.execute(
+                    "UPDATE automation_rules SET name = ?2 WHERE id = ?1",
+                    params![rule_id, name],
+                )?;
+            }
+            match &patch.description {
+                NullablePatch::Unchanged => {}
+                NullablePatch::Clear => {
+                    tx.execute(
+                        "UPDATE automation_rules SET description = NULL WHERE id = ?1",
+                        params![rule_id],
+                    )?;
+                }
+                NullablePatch::Set(value) => {
+                    tx.execute(
+                        "UPDATE automation_rules SET description = ?2 WHERE id = ?1",
+                        params![rule_id, value],
+                    )?;
+                }
+            }
+            if let Some(prompt) = &patch.prompt {
+                tx.execute(
+                    "UPDATE automation_rules SET prompt = ?2 WHERE id = ?1",
+                    params![rule_id, prompt],
+                )?;
+            }
+            if let Some(backend) = patch.backend {
+                tx.execute(
+                    "UPDATE automation_rules SET backend_kind = ?2 WHERE id = ?1",
+                    params![rule_id, backend.as_str()],
+                )?;
+            }
+            if let Some(config) = &patch.backend_config {
+                tx.execute(
+                    "UPDATE automation_rules SET backend_config = ?2 WHERE id = ?1",
+                    params![rule_id, serde_json::to_string(config)?],
+                )?;
+            }
+            if let Some(kind) = patch.trigger_kind {
+                tx.execute(
+                    "UPDATE automation_rules SET trigger_kind = ?2 WHERE id = ?1",
+                    params![rule_id, kind.as_str()],
+                )?;
+            }
+            if let Some(trigger) = &patch.trigger {
+                tx.execute(
+                    "UPDATE automation_rules SET trigger_config = ?2 WHERE id = ?1",
+                    params![rule_id, serde_json::to_string(trigger)?],
+                )?;
+            }
+            if let Some(enabled) = patch.enabled {
+                tx.execute(
+                    "UPDATE automation_rules SET enabled = ?2 WHERE id = ?1",
+                    params![rule_id, enabled],
+                )?;
+            }
+            tx.execute(
+                "UPDATE automation_rules SET updated_at = ?2 WHERE id = ?1",
+                params![rule_id, now],
+            )?;
+            ensure_valid_automation_rule(tx, rule_id)?;
+        }
+        MutationOperation::AutomationRuleDelete { rule_id } => {
+            require_automation_rule(tx, workspace_id, rule_id)?;
+            tx.execute(
+                "DELETE FROM automation_rules WHERE id = ?1 AND workspace_id = ?2",
+                params![rule_id, workspace_id],
+            )?;
+        }
+        MutationOperation::SettingSet { key, value } => {
+            tx.execute(
+                "INSERT INTO settings (workspace_id, key, value, updated_at)
+                 VALUES (?1, ?2, ?3, ?4)
+                 ON CONFLICT(workspace_id, key)
+                 DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+                params![workspace_id, key, value, now],
+            )?;
+        }
+    }
+    Ok(())
+}
+
+fn ensure_document_exists(
+    tx: &rusqlite::Transaction<'_>,
+    workspace_id: &str,
+    document_id: &str,
+) -> Result<()> {
+    let exists: bool = tx.query_row(
+        "SELECT EXISTS(
+             SELECT 1 FROM documents
+              WHERE id = ?1 AND workspace_id = ?2 AND document_type = ?3
+         )",
+        params![document_id, workspace_id, DOCUMENT_TYPE_MEMO],
+        |row| row.get(0),
+    )?;
+    ensure!(exists, "メモが見つかりません: {document_id}");
+    Ok(())
+}
+
+fn require_tag_kind(
+    tx: &rusqlite::Transaction<'_>,
+    workspace_id: &str,
+    tag_id: &str,
+) -> Result<String> {
+    tx.query_row(
+        "SELECT kind FROM tag_definitions
+          WHERE id = ?1 AND (workspace_id = ?2 OR workspace_id = 'local')
+            AND deleted_at IS NULL",
+        params![tag_id, workspace_id],
+        |row| row.get(0),
+    )
+    .optional()?
+    .with_context(|| format!("タグが見つかりません: {tag_id}"))
+}
+
+fn require_automation_rule(
+    tx: &rusqlite::Transaction<'_>,
+    workspace_id: &str,
+    rule_id: &str,
+) -> Result<()> {
+    let exists: bool = tx.query_row(
+        "SELECT EXISTS(
+             SELECT 1 FROM automation_rules WHERE id = ?1 AND workspace_id = ?2
+         )",
+        params![rule_id, workspace_id],
+        |row| row.get(0),
+    )?;
+    ensure!(exists, "自動化ルールが見つかりません: {rule_id}");
+    Ok(())
+}
+
+fn ensure_valid_automation_rule(
+    tx: &rusqlite::Transaction<'_>,
+    rule_id: &str,
+) -> Result<()> {
+    let (trigger_kind, trigger_json): (String, String) = tx.query_row(
+        "SELECT trigger_kind, trigger_config FROM automation_rules WHERE id = ?1",
+        params![rule_id],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
+    if trigger_kind == "schedule" {
+        let trigger: Trigger = serde_json::from_str(&trigger_json)
+            .context("trigger_config を解釈できません")?;
+        ensure!(
+            trigger.cron.as_deref().is_some_and(|cron| !cron.trim().is_empty()),
+            "schedule には trigger.cron が必要です"
+        );
+    }
+    Ok(())
 }
 
 impl AutomationStore for Database {
@@ -1002,6 +1493,24 @@ mod tests {
              finished_at TEXT
          )";
 
+    const LEGACY_LOCAL_MUTATIONS: &str =
+        "CREATE TABLE local_mutations (
+             operation_id TEXT PRIMARY KEY,
+             workspace_id TEXT NOT NULL,
+             entity_kind TEXT NOT NULL,
+             entity_id TEXT NOT NULL,
+             operation_kind TEXT NOT NULL,
+             payload_json TEXT NOT NULL,
+             base_revision INTEGER,
+             resulting_revision INTEGER NOT NULL,
+             created_at TEXT NOT NULL
+         );
+         INSERT INTO local_mutations
+             (operation_id, workspace_id, entity_kind, entity_id, operation_kind,
+              payload_json, base_revision, resulting_revision, created_at)
+         VALUES
+             ('op-1', 'local', 'setting', 'key', 'setting_set', '{}', NULL, 1, 'old')";
+
     fn automation_run_columns(conn: &Connection) -> Vec<String> {
         let mut statement = conn
             .prepare("PRAGMA table_info(automation_runs)")
@@ -1052,6 +1561,39 @@ mod tests {
         }
 
         // Reopening an already upgraded database must be a no-op.
+        Database::from_connection(db.conn.into_inner()).unwrap();
+    }
+
+    #[test]
+    fn upgrades_legacy_local_mutations_before_creating_status_index() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(LEGACY_LOCAL_MUTATIONS).unwrap();
+
+        let db = Database::from_connection(conn).unwrap();
+        {
+            let conn = db.conn.borrow();
+            let receipt: (String, String) = conn
+                .query_row(
+                    "SELECT actor, status FROM local_mutations WHERE operation_id = 'op-1'",
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .unwrap();
+            assert_eq!(receipt, ("local".into(), "applied".into()));
+            let index_exists: bool = conn
+                .query_row(
+                    "SELECT EXISTS(
+                         SELECT 1 FROM sqlite_master
+                          WHERE type = 'index' AND name = 'idx_local_mutations_outbox'
+                     )",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert!(index_exists);
+        }
+
+        // Receipt columns already exist, so reopening must not try to add them again.
         Database::from_connection(db.conn.into_inner()).unwrap();
     }
 
@@ -1179,6 +1721,10 @@ mod tests {
 
     #[test]
     fn rename_keeps_stable_id_and_soft_delete_keeps_assignments() {
+        use crate::domain::mutation::{
+            MutationOperation, MutationRequest, NullablePatch, TagPatch,
+        };
+
         let db = Database::open_in_memory().unwrap();
         db.conn.borrow().execute(
             "INSERT INTO tag_definitions VALUES('tag-1','ws','user','old',NULL,1,0,1,NULL,NULL,'now','now')", [],
@@ -1191,12 +1737,39 @@ mod tests {
             )
             .unwrap();
 
-        TagRepository::rename(&db, "tag-1", "new", Some("n"), "later").unwrap();
+        db.apply_mutation(
+            &MutationRequest {
+                operation_id: "op-rename".into(),
+                workspace_id: "ws".into(),
+                base_revision: Some(0),
+                operation: MutationOperation::TagPatch {
+                    tag_id: "tag-1".into(),
+                    patch: TagPatch {
+                        display_name: Some("new".into()),
+                        shorthand: NullablePatch::Set("n".into()),
+                        ..Default::default()
+                    },
+                },
+            },
+            "later",
+        )
+        .unwrap();
         let renamed = TagRepository::get(&db, "tag-1").unwrap().unwrap();
         assert_eq!(renamed.id, "tag-1");
         assert_eq!(renamed.display_name, "new");
 
-        TagRepository::soft_delete(&db, "tag-1", "deleted").unwrap();
+        db.apply_mutation(
+            &MutationRequest {
+                operation_id: "op-delete".into(),
+                workspace_id: "ws".into(),
+                base_revision: Some(1),
+                operation: MutationOperation::TagDelete {
+                    tag_id: "tag-1".into(),
+                },
+            },
+            "deleted",
+        )
+        .unwrap();
         let visible = TagRepository::list(&db, "ws", false).unwrap();
         assert!(visible.iter().all(|tag| tag.id != "tag-1"));
         let provenance: String = db
@@ -1209,5 +1782,350 @@ mod tests {
             )
             .unwrap();
         assert_eq!(provenance, "tag-1");
+    }
+
+    #[test]
+    fn memo_state_delta_is_idempotent_and_preserves_untouched_fields() {
+        use crate::domain::mutation::{MemoStatePatch, MutationOperation, MutationRequest};
+
+        let db = Database::open_in_memory().unwrap();
+        db.conn
+            .borrow()
+            .execute(
+                "INSERT INTO documents
+                     (id, workspace_id, title, body_text, blob_uri, document_type, created_at, updated_at)
+                 VALUES ('memo-1', 'ws', 'memo', 'body', NULL, 'memo', 'old', 'old')",
+                [],
+            )
+            .unwrap();
+        db.conn
+            .borrow()
+            .execute(
+                "INSERT INTO document_states
+                     (document_id, workspace_id, done, done_at, archived_at, deleted_at, updated_at)
+                 VALUES ('memo-1', 'ws', 0, NULL, 'archived-before', NULL, 'old')",
+                [],
+            )
+            .unwrap();
+
+        let request = MutationRequest {
+            operation_id: "op-memo".into(),
+            workspace_id: "ws".into(),
+            base_revision: Some(0),
+            operation: MutationOperation::MemoStatePatch {
+                memo_id: "memo-1".into(),
+                patch: MemoStatePatch {
+                    done: Some(true),
+                    ..Default::default()
+                },
+            },
+        };
+        let applied = db.apply_mutation(&request, "now").unwrap();
+        assert_eq!(applied.status, MutationStatus::Applied);
+        assert_eq!(applied.revision, 1);
+
+        let state: (i64, Option<String>, Option<String>) = db
+            .conn
+            .borrow()
+            .query_row(
+                "SELECT done, done_at, archived_at FROM document_states WHERE document_id='memo-1'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(state, (1, Some("now".into()), Some("archived-before".into())));
+
+        let duplicate = db.apply_mutation(&request, "later").unwrap();
+        assert_eq!(duplicate.status, MutationStatus::Duplicate);
+        assert_eq!(duplicate.revision, 1);
+        assert_eq!(duplicate.recorded_at, "now");
+
+        let stale = MutationRequest {
+            operation_id: "op-stale".into(),
+            workspace_id: "ws".into(),
+            base_revision: Some(0),
+            operation: MutationOperation::MemoStatePatch {
+                memo_id: "memo-1".into(),
+                patch: MemoStatePatch {
+                    archived: Some(false),
+                    ..Default::default()
+                },
+            },
+        };
+        let conflict = db.apply_mutation(&stale, "later").unwrap();
+        assert_eq!(conflict.status, MutationStatus::Conflict);
+        assert_eq!(conflict.revision, 1);
+        let repeated_conflict = db.apply_mutation(&stale, "much-later").unwrap();
+        assert_eq!(repeated_conflict.status, MutationStatus::Conflict);
+        assert_eq!(repeated_conflict.revision, 1);
+        assert_eq!(repeated_conflict.recorded_at, "later");
+
+        let reused_id = MutationRequest {
+            operation_id: "op-stale".into(),
+            workspace_id: "ws".into(),
+            base_revision: Some(1),
+            operation: MutationOperation::MemoStatePatch {
+                memo_id: "memo-1".into(),
+                patch: MemoStatePatch {
+                    archived: Some(false),
+                    ..Default::default()
+                },
+            },
+        };
+        assert!(
+            db.apply_mutation(&reused_id, "much-later")
+                .unwrap_err()
+                .to_string()
+                .contains("別の mutation")
+        );
+        let archived: Option<String> = db
+            .conn
+            .borrow()
+            .query_row(
+                "SELECT archived_at FROM document_states WHERE document_id='memo-1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(archived.as_deref(), Some("archived-before"));
+    }
+
+    #[test]
+    fn memo_state_mutations_never_apply_to_non_memo_documents() {
+        use crate::domain::mutation::{MemoStatePatch, MutationOperation, MutationRequest};
+
+        let db = Database::open_in_memory().unwrap();
+        db.conn
+            .borrow()
+            .execute(
+                "INSERT INTO documents
+                     (id, workspace_id, title, body_text, blob_uri, document_type, created_at, updated_at)
+                 VALUES ('result-1', 'ws', 'result', 'body', NULL, 'automation_result', 'old', 'old')",
+                [],
+            )
+            .unwrap();
+
+        let request = MutationRequest {
+            operation_id: "op-result".into(),
+            workspace_id: "ws".into(),
+            base_revision: Some(0),
+            operation: MutationOperation::MemoStatePatch {
+                memo_id: "result-1".into(),
+                patch: MemoStatePatch {
+                    done: Some(true),
+                    ..Default::default()
+                },
+            },
+        };
+
+        let error = db.apply_mutation(&request, "now").unwrap_err();
+        assert!(error.to_string().contains("メモが見つかりません"));
+        let states: i64 = db
+            .conn
+            .borrow()
+            .query_row("SELECT count(*) FROM document_states", [], |row| row.get(0))
+            .unwrap();
+        let mutations: i64 = db
+            .conn
+            .borrow()
+            .query_row("SELECT count(*) FROM local_mutations", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!((states, mutations), (0, 0));
+    }
+
+    #[test]
+    fn archive_completed_tasks_only_archives_memos() {
+        use crate::domain::mutation::{MutationOperation, MutationRequest};
+
+        let db = Database::open_in_memory().unwrap();
+        db.conn
+            .borrow()
+            .execute_batch(
+                "INSERT INTO documents
+                     (id, workspace_id, title, body_text, blob_uri, document_type, created_at, updated_at)
+                 VALUES
+                     ('memo-1', 'ws', 'memo', 'body', NULL, 'memo', 'old', 'old'),
+                     ('result-1', 'ws', 'result', 'body', NULL, 'automation_result', 'old', 'old');
+                 INSERT INTO document_states(document_id, workspace_id, done, updated_at)
+                 VALUES ('memo-1', 'ws', 1, 'old'), ('result-1', 'ws', 1, 'old');
+                 INSERT INTO document_meta(id, document_id, label, value, source, created_at)
+                 VALUES
+                     ('meta-1', 'memo-1', 'task', NULL, 'user', 'old'),
+                     ('meta-2', 'result-1', 'task', NULL, 'user', 'old');",
+            )
+            .unwrap();
+
+        let request = MutationRequest {
+            operation_id: "op-archive".into(),
+            workspace_id: "ws".into(),
+            base_revision: Some(0),
+            operation: MutationOperation::ArchiveCompletedTasks {
+                labels: vec!["task".into()],
+            },
+        };
+        db.apply_mutation(&request, "now").unwrap();
+
+        let states: (Option<String>, Option<String>) = db
+            .conn
+            .borrow()
+            .query_row(
+                "SELECT
+                     max(CASE WHEN document_id = 'memo-1' THEN archived_at END),
+                     max(CASE WHEN document_id = 'result-1' THEN archived_at END)
+                   FROM document_states",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(states, (Some("now".into()), None));
+    }
+
+    #[test]
+    fn tag_delta_updates_only_supplied_fields_and_bindings_atomically() {
+        use crate::domain::mutation::{
+            MutationOperation, MutationRequest, NullablePatch, TagPatch, TagRecipe,
+        };
+
+        let db = Database::open_in_memory().unwrap();
+        db.conn
+            .borrow()
+            .execute(
+                "INSERT INTO tag_definitions
+                 VALUES('tag-1','ws','user','old','o',1,0,1,NULL,NULL,'old','old')",
+                [],
+            )
+            .unwrap();
+        db.conn
+            .borrow()
+            .execute(
+                "INSERT INTO view_bindings VALUES('tag-1','existing-view','old')",
+                [],
+            )
+            .unwrap();
+
+        let first = MutationRequest {
+            operation_id: "op-tag-1".into(),
+            workspace_id: "ws".into(),
+            base_revision: Some(0),
+            operation: MutationOperation::TagPatch {
+                tag_id: "tag-1".into(),
+                patch: TagPatch {
+                    enabled: Some(false),
+                    shorthand: NullablePatch::Clear,
+                    ..Default::default()
+                },
+            },
+        };
+        assert_eq!(db.apply_mutation(&first, "one").unwrap().revision, 1);
+        let row: (String, Option<String>, i64, String) = db
+            .conn
+            .borrow()
+            .query_row(
+                "SELECT t.display_name, t.shorthand, t.enabled, v.view_id
+                   FROM tag_definitions t JOIN view_bindings v ON v.tag_id=t.id
+                  WHERE t.id='tag-1'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!(row, ("old".into(), None, 0, "existing-view".into()));
+
+        let second = MutationRequest {
+            operation_id: "op-tag-2".into(),
+            workspace_id: "ws".into(),
+            base_revision: Some(1),
+            operation: MutationOperation::TagPatch {
+                tag_id: "tag-1".into(),
+                patch: TagPatch {
+                    view: NullablePatch::Clear,
+                    recipe: NullablePatch::Set(TagRecipe {
+                        name: "build".into(),
+                        managed: true,
+                    }),
+                    ..Default::default()
+                },
+            },
+        };
+        assert_eq!(db.apply_mutation(&second, "two").unwrap().revision, 2);
+        let view_count: i64 = db
+            .conn
+            .borrow()
+            .query_row(
+                "SELECT count(*) FROM view_bindings WHERE tag_id='tag-1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let recipe: (String, String) = db
+            .conn
+            .borrow()
+            .query_row(
+                "SELECT recipe_name, ownership FROM automation_bindings WHERE tag_id='tag-1'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(view_count, 0);
+        assert_eq!(recipe, ("build".into(), "managed".into()));
+    }
+
+    #[test]
+    fn automation_rule_patch_does_not_replace_the_whole_rule() {
+        use crate::domain::automation::{BackendConfig, BackendKind, Trigger, TriggerKind};
+        use crate::domain::mutation::{
+            AutomationRuleInput, AutomationRulePatch, MutationOperation, MutationRequest,
+        };
+
+        let db = Database::open_in_memory().unwrap();
+        let create = MutationRequest {
+            operation_id: "op-create".into(),
+            workspace_id: "ws".into(),
+            base_revision: Some(0),
+            operation: MutationOperation::AutomationRuleCreate {
+                rule_id: Some("rule-1".into()),
+                input: AutomationRuleInput {
+                    name: "name".into(),
+                    description: Some("description".into()),
+                    prompt: "keep this prompt".into(),
+                    backend: BackendKind::ApiKey,
+                    backend_config: BackendConfig {
+                        provider: "anthropic".into(),
+                        ..Default::default()
+                    },
+                    trigger_kind: TriggerKind::Manual,
+                    trigger: Trigger::default(),
+                    enabled: true,
+                },
+            },
+        };
+        db.apply_mutation(&create, "created").unwrap();
+
+        let patch = MutationRequest {
+            operation_id: "op-patch".into(),
+            workspace_id: "ws".into(),
+            base_revision: Some(1),
+            operation: MutationOperation::AutomationRulePatch {
+                rule_id: "rule-1".into(),
+                patch: AutomationRulePatch {
+                    enabled: Some(false),
+                    ..Default::default()
+                },
+            },
+        };
+        let result = db.apply_mutation(&patch, "patched").unwrap();
+        assert_eq!(result.revision, 2);
+        let row: (String, String, i64, String) = db
+            .conn
+            .borrow()
+            .query_row(
+                "SELECT name, prompt, enabled, updated_at FROM automation_rules WHERE id='rule-1'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            row,
+            ("name".into(), "keep this prompt".into(), 0, "patched".into())
+        );
     }
 }

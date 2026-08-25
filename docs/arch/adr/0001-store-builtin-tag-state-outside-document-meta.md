@@ -1,7 +1,7 @@
 ---
 id: ADR-0001
 title: 組み込みタグの状態を document_states に分離し、削除は論理削除とする
-status: accepted
+status: superseded
 date: 2026-08-14
 area:
   - domain
@@ -12,7 +12,7 @@ owners:
   - elda27
 related: []
 supersedes: []
-supersededBy: null
+supersededBy: ADR-0004
 discussion: null
 ---
 

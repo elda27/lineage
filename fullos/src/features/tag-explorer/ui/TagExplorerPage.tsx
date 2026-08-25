@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import type { TagDefinition } from "@core/domain/tag/TagDefinition";
+import type { TagDefinition, TagPatch } from "@core/domain/tag/TagDefinition";
 import { appClient } from "@/shared/api/appClient";
 import { primaryButton, secondaryButton } from "@/shared/ui/kit";
 
@@ -110,8 +110,13 @@ function TagDetail({
   const [draft, setDraft] = useState(tag);
   const [deleting, setDeleting] = useState(false);
   const save = async () => {
+    const patch = tagPatch(tag, draft);
+    if (Object.keys(patch).length === 0) {
+      saved();
+      return;
+    }
     const c = await appClient();
-    await c.updateTag(tag.id, draft);
+    await c.updateTag(tag.id, patch);
     saved();
   };
   const remove = async () => {
@@ -212,4 +217,17 @@ function TagDetail({
       </div>
     </div>
   );
+}
+
+/** 保存時に変更された tag fields だけを Rust 側へ渡す。 */
+function tagPatch(previous: TagDefinition, next: TagDefinition): TagPatch {
+  const patch: TagPatch = {};
+  if (previous.displayName !== next.displayName) patch.displayName = next.displayName;
+  if (previous.shorthand !== next.shorthand) patch.shorthand = next.shorthand;
+  if (previous.enabled !== next.enabled) patch.enabled = next.enabled;
+  if (previous.view !== next.view) patch.view = next.view;
+  if (previous.recipe !== next.recipe || previous.recipeManaged !== next.recipeManaged) {
+    patch.recipe = next.recipe ? { name: next.recipe, managed: next.recipeManaged } : null;
+  }
+  return patch;
 }

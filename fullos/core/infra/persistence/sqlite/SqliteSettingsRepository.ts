@@ -2,12 +2,7 @@ import { selectOrEmpty, type SqlHandle } from "./SqlHandle";
 
 type SettingRow = { value: string };
 
-/**
- * `settings` テーブルの読み書き。
- *
- * minos が書いた値と同じ行を fullos からも編集する（docs/ui.md「fullos」4.）。
- * lineage を生まない設定なので、fullos が直接書いてよい。
- */
+/** `settings` テーブルの読み出し。書き込みは Rust の mutation API を通す。 */
 export class SqliteSettingsRepository {
   constructor(private readonly db: SqlHandle) {}
 
@@ -18,15 +13,5 @@ export class SqliteSettingsRepository {
       [workspaceId, key],
     );
     return rows[0]?.value ?? null;
-  }
-
-  async set(workspaceId: string, key: string, value: string): Promise<void> {
-    await this.db.execute(
-      `INSERT INTO settings (workspace_id, key, value, updated_at)
-       VALUES ($1, $2, $3, $4)
-       ON CONFLICT(workspace_id, key)
-       DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
-      [workspaceId, key, value, new Date().toISOString()],
-    );
   }
 }

@@ -134,23 +134,24 @@ ADRは議論全文や会議録を保存する場所ではありません。詳�
 
 | ID  | Title | Status | Area | Scope | Date | Replaces |
 | --- | ----- | ------ | ---- | ----- | ---- | -------- |
-| [ADR-0001](./0001-store-builtin-tag-state-outside-document-meta.md) | 組み込みタグの状態を document_states に分離し、削除は論理削除とする | accepted | domain, data | application | 2026-08-14 | - |
+| [ADR-0001](./0001-store-builtin-tag-state-outside-document-meta.md) | 組み込みタグの状態を document_states に分離し、削除は論理削除とする | superseded | domain, data | application | 2026-08-14 | - |
 | [ADR-0002](./0002-use-just-recipes-for-tag-automation-without-owning-dag-engine.md) | タグ自動化の定義に just recipe を用い、Lineage は DAG engine を持たない | accepted | application, integration, quality | application | 2026-08-18 | - |
 | [ADR-0003](./0003-share-capture-and-editing-completion-contract.md) | minos の入力と fullos の編集でメタ情報補完契約を共通化する | accepted | application, quality | application | 2026-08-18 | - |
+| [ADR-0004](./0004-rust-owned-fullos-delta-mutations.md) | FullOS の書き込みを Rust 所有の差分 mutation API に集約する | accepted | application, integration, data, platform | application | 2026-08-25 | ADR-0001 |
 
 ## 5. 現在有効なADR（status: accepted）
 
-- [ADR-0001](./0001-store-builtin-tag-state-outside-document-meta.md): 組み込みタグの状態を document_states に分離し、削除は論理削除とする
 - [ADR-0002](./0002-use-just-recipes-for-tag-automation-without-owning-dag-engine.md): タグ自動化の定義に just recipe を用い、Lineage は DAG engine を持たない
 - [ADR-0003](./0003-share-capture-and-editing-completion-contract.md): minos の入力と fullos の編集でメタ情報補完契約を共通化する
+- [ADR-0004](./0004-rust-owned-fullos-delta-mutations.md): FullOS の書き込みを Rust 所有の差分 mutation API に集約する
 
 ## 6. superseded関係
 
-現時点で置き換えられたADRはありません。
+ADR-0001 は ADR-0004 によって、`document_states` の責務ではなく FullOS WebView の書き込み境界について置き換えられました。
 
 | 旧ADR | 置き換え先（supersededBy） |
 | ----- | -------------------------- |
-| -     | -                          |
+| [ADR-0001](./0001-store-builtin-tag-state-outside-document-meta.md) | [ADR-0004](./0004-rust-owned-fullos-delta-mutations.md) |
 
 ## 7. ADR作成前の確認事項
 

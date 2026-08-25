@@ -11,13 +11,14 @@
 //!
 //! 結果として、`links` への追記は minos / agentos の1本に集約されたままになる。
 //! fullos は「どのルールをどの記録に当てるか」を決めるだけで、鎖には直接触らない。
+//! 通常のローカル更新も同じ agentos の writer 経由で確定する。
 //!
 //! API キーの平文は webview に渡さない。公開するのは登録・削除・有無の確認だけで、
 //! 値を読み出すコマンドは用意していない。登録時の値も引数ではなく標準入力で渡す
 //! （コマンドライン引数は他プロセスから見えるため）。
 
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use serde_json::Value;
@@ -26,26 +27,72 @@ use tauri::{AppHandle, Manager};
 /// 同梱している実行ファイルの名前。
 const AGENTOS_EXE: &str = if cfg!(windows) { "agentos.exe" } else { "agentos" };
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ExitCodePolicy {
+    /// コマンドが正常終了した場合だけ stdout を受け取る。
+    SuccessOnly,
+    /// 終了コード 2 でも、機械可読な結果が stdout にある場合は受け取る。
+    ReportedOutcome,
+}
+
+fn workspace_root(exe: &Path) -> Option<PathBuf> {
+    exe.ancestors()
+        .find(|ancestor| ancestor.join("agentos").join("Cargo.toml").is_file())
+        .map(Path::to_path_buf)
+}
+
+fn agentos_candidates(
+    workspace_root: Option<&Path>,
+    resource_dir: Option<&Path>,
+    debug_build: bool,
+) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+    match (debug_build, workspace_root) {
+        // 開発中にワークスペースを特定できた場合は、古い resource copy へ
+        // フォールバックしない。beforeDevCommand がこのファイルを必ずビルドする。
+        (true, Some(root)) => {
+            candidates.push(root.join("target").join("debug").join(AGENTOS_EXE));
+        }
+        (true, None) => {
+            if let Some(resource_dir) = resource_dir {
+                candidates.push(resource_dir.join(AGENTOS_EXE));
+            }
+        }
+        (false, root) => {
+            if let Some(resource_dir) = resource_dir {
+                candidates.push(resource_dir.join(AGENTOS_EXE));
+            }
+            if let Some(root) = root {
+                let candidate = root.join("target").join("release").join(AGENTOS_EXE);
+                if !candidates.contains(&candidate) {
+                    candidates.push(candidate);
+                }
+            }
+        }
+    }
+
+    candidates
+}
+
 /// agentos の実行ファイルを探す。
 ///
 /// 配布時は Tauri のリソースディレクトリに入る（tauri.conf.json の bundle.resources）。
 /// 開発時はワークスペースの target/ に出るので、そちらも見に行く。
 pub fn agentos_path(app: &AppHandle) -> Result<PathBuf, String> {
-    if let Ok(resource_dir) = app.path().resource_dir() {
-        let bundled = resource_dir.join(AGENTOS_EXE);
-        if bundled.exists() {
-            return Ok(bundled);
-        }
-    }
+    let exe = std::env::current_exe()
+        .map_err(|error| format!("実行ファイルの場所を特定できません: {error}"))?;
+    let workspace_root = workspace_root(&exe);
+    let resource_dir = app.path().resource_dir().ok();
 
-    // 開発時: src-tauri/target/... から見てワークスペースルートの target/ を辿る。
-    let exe = std::env::current_exe().map_err(|error| format!("実行ファイルの場所を特定できません: {error}"))?;
-    for ancestor in exe.ancestors() {
-        for profile in ["debug", "release"] {
-            let candidate = ancestor.join("target").join(profile).join(AGENTOS_EXE);
-            if candidate.exists() {
-                return Ok(candidate);
-            }
+    // Debug ではワークスペースの同じ profile を最優先にする。配布用 Release では
+    // bundle.resources が配置した sidecar を最優先にする。
+    for candidate in agentos_candidates(
+        workspace_root.as_deref(),
+        resource_dir.as_deref(),
+        cfg!(debug_assertions),
+    ) {
+        if candidate.is_file() {
+            return Ok(candidate);
         }
     }
 
@@ -54,11 +101,44 @@ pub fn agentos_path(app: &AppHandle) -> Result<PathBuf, String> {
     ))
 }
 
+fn resolve_output(
+    code: Option<i32>,
+    stdout: String,
+    stderr: &str,
+    policy: ExitCodePolicy,
+) -> Result<String, String> {
+    if code == Some(0) {
+        return Ok(stdout);
+    }
+
+    // Clap の引数エラーも終了コード 2 になる。結果 JSON がない場合まで成功扱いに
+    // すると、stderr の本当の原因が隠れて空文字列の JSON parse error に化ける。
+    if code == Some(2)
+        && policy == ExitCodePolicy::ReportedOutcome
+        && !stdout.trim().is_empty()
+        && serde_json::from_str::<Value>(&stdout).is_ok()
+    {
+        return Ok(stdout);
+    }
+
+    let message = stderr.trim();
+    Err(if message.is_empty() {
+        match code {
+            Some(code) => format!("agentos の実行に失敗しました (終了コード: {code})"),
+            None => "agentos の実行に失敗しました (シグナルにより終了)".to_string(),
+        }
+    } else {
+        message.to_string()
+    })
+}
+
 /// agentos を1回呼び、stdout を返す。
-///
-/// 終了コード 2 は「自動化が成功しなかった」ことを表し、実行そのものの失敗（1）とは
-/// 区別する。前者は結果 JSON が stdout に出ているので、呼び出し側に渡して判断させる。
-fn invoke(app: &AppHandle, args: &[&str], stdin: Option<&str>) -> Result<String, String> {
+fn invoke_with_policy(
+    app: &AppHandle,
+    args: &[&str],
+    stdin: Option<&str>,
+    policy: ExitCodePolicy,
+) -> Result<String, String> {
     let path = agentos_path(app)?;
     let mut command = Command::new(&path);
     command
@@ -94,27 +174,47 @@ fn invoke(app: &AppHandle, args: &[&str], stdin: Option<&str>) -> Result<String,
         .wait_with_output()
         .map_err(|error| format!("agentos の終了を待てません: {error}"))?;
 
-    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
-    match output.status.code() {
-        // 0 = 成功、2 = 自動化が成功しなかった（結果は stdout にある）。
-        Some(0) | Some(2) => Ok(stdout),
-        _ => {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            let message = stderr.trim();
-            Err(if message.is_empty() {
-                "agentos の実行に失敗しました".to_string()
-            } else {
-                message.to_string()
-            })
-        }
-    }
+    resolve_output(
+        output.status.code(),
+        String::from_utf8_lossy(&output.stdout).into_owned(),
+        &String::from_utf8_lossy(&output.stderr),
+        policy,
+    )
+}
+
+fn invoke(app: &AppHandle, args: &[&str], stdin: Option<&str>) -> Result<String, String> {
+    invoke_with_policy(app, args, stdin, ExitCodePolicy::SuccessOnly)
 }
 
 /// stdout の JSON を値として返す。
-fn invoke_json(app: &AppHandle, args: &[&str], stdin: Option<&str>) -> Result<Value, String> {
-    let stdout = invoke(app, args, stdin)?;
+fn invoke_json_with_policy(
+    app: &AppHandle,
+    args: &[&str],
+    stdin: Option<&str>,
+    policy: ExitCodePolicy,
+) -> Result<Value, String> {
+    let stdout = invoke_with_policy(app, args, stdin, policy)?;
+    if stdout.trim().is_empty() {
+        return Err("agentos が JSON を出力しませんでした".to_string());
+    }
     serde_json::from_str(&stdout)
         .map_err(|error| format!("agentos の出力を解釈できません: {error}\n{stdout}"))
+}
+
+pub(crate) fn invoke_json(
+    app: &AppHandle,
+    args: &[&str],
+    stdin: Option<&str>,
+) -> Result<Value, String> {
+    invoke_json_with_policy(app, args, stdin, ExitCodePolicy::SuccessOnly)
+}
+
+fn invoke_reported_outcome_json(
+    app: &AppHandle,
+    args: &[&str],
+    stdin: Option<&str>,
+) -> Result<Value, String> {
+    invoke_json_with_policy(app, args, stdin, ExitCodePolicy::ReportedOutcome)
 }
 
 /// 記録に対して実行できるルール。メモの隣の「Action」ボタンが使う。
@@ -137,7 +237,7 @@ pub async fn automation_run(
     memo_id: String,
 ) -> Result<Value, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        invoke_json(
+        invoke_reported_outcome_json(
             &app,
             &["--json", "run", "--rule", &rule_id, "--memo", &memo_id],
             None,
@@ -178,7 +278,7 @@ pub async fn automation_record(
     text: String,
 ) -> Result<Value, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        invoke_json(
+        invoke_reported_outcome_json(
             &app,
             &[
                 "--json",
@@ -239,7 +339,105 @@ pub async fn credential_delete(app: AppHandle, provider: String) -> Result<(), S
 /// hash-chain の検証。自動化が鎖を壊していないことを設定画面から確認できる。
 #[tauri::command]
 pub async fn verify_lineage(app: AppHandle) -> Result<Value, String> {
-    tauri::async_runtime::spawn_blocking(move || invoke_json(&app, &["--json", "verify"], None))
-        .await
-        .map_err(|error| format!("処理を実行できません: {error}"))?
+    tauri::async_runtime::spawn_blocking(move || {
+        invoke_reported_outcome_json(&app, &["--json", "verify"], None)
+    })
+    .await
+    .map_err(|error| format!("処理を実行できません: {error}"))?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn finds_workspace_root_from_tauri_target() {
+        let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let expected = manifest_dir
+            .parent()
+            .and_then(Path::parent)
+            .expect("src-tauri must be nested below the workspace root");
+        let exe = manifest_dir.join("target").join("debug").join("fullos.exe");
+
+        assert_eq!(workspace_root(&exe), Some(expected.to_path_buf()));
+    }
+
+    #[test]
+    fn debug_prefers_workspace_debug_sidecar_over_bundled_copy() {
+        let root = Path::new("workspace");
+        let resources = Path::new("resources");
+
+        assert_eq!(
+            agentos_candidates(Some(root), Some(resources), true),
+            vec![root.join("target").join("debug").join(AGENTOS_EXE)]
+        );
+    }
+
+    #[test]
+    fn release_prefers_bundled_sidecar_then_workspace_release() {
+        let root = Path::new("workspace");
+        let resources = Path::new("resources");
+
+        assert_eq!(
+            agentos_candidates(Some(root), Some(resources), false),
+            vec![
+                resources.join(AGENTOS_EXE),
+                root.join("target").join("release").join(AGENTOS_EXE),
+            ]
+        );
+    }
+
+    #[test]
+    fn reported_outcome_accepts_exit_two_with_json() {
+        let stdout = r#"{"status":"failed"}"#.to_string();
+
+        assert_eq!(
+            resolve_output(
+                Some(2),
+                stdout.clone(),
+                "",
+                ExitCodePolicy::ReportedOutcome,
+            ),
+            Ok(stdout)
+        );
+    }
+
+    #[test]
+    fn reported_outcome_rejects_exit_two_without_stdout() {
+        let error = resolve_output(
+            Some(2),
+            String::new(),
+            "error: unrecognized subcommand 'apply'",
+            ExitCodePolicy::ReportedOutcome,
+        )
+        .expect_err("a clap parse failure must not be treated as a reported outcome");
+
+        assert_eq!(error, "error: unrecognized subcommand 'apply'");
+    }
+
+    #[test]
+    fn reported_outcome_rejects_exit_two_with_non_json_stdout() {
+        let error = resolve_output(
+            Some(2),
+            "Usage: agentos apply".to_string(),
+            "command line could not be parsed",
+            ExitCodePolicy::ReportedOutcome,
+        )
+        .expect_err("only a JSON outcome may use the domain exit code");
+
+        assert_eq!(error, "command line could not be parsed");
+    }
+
+    #[test]
+    fn strict_commands_reject_exit_two_even_with_stdout() {
+        let error = resolve_output(
+            Some(2),
+            r#"{"status":"failed"}"#.to_string(),
+            "domain command failed",
+            ExitCodePolicy::SuccessOnly,
+        )
+        .expect_err("strict commands must require exit code zero");
+
+        assert_eq!(error, "domain command failed");
+    }
 }

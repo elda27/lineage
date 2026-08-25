@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import type {
   AutomationRule,
+  AutomationRulePatch,
   AutomationRuleInput,
   AutomationRun,
 } from "@core/domain/automation/AutomationRule";
@@ -37,10 +38,28 @@ export function useAutomationRules() {
   const save = useCallback(
     async (input: AutomationRuleInput) => {
       const client = await appClient();
-      await client.saveAutomationRule(input);
+      if (input.id) {
+        const current = rules.find((rule) => rule.id === input.id);
+        if (!current) throw new Error("編集対象の自動化ルールが見つかりません。");
+        const patch = automationRulePatch(current, input);
+        if (Object.keys(patch).length > 0) {
+          await client.updateAutomationRule(input.id, patch);
+        }
+      } else {
+        await client.createAutomationRule({
+          name: input.name,
+          description: input.description,
+          prompt: input.prompt,
+          backend: input.backend,
+          backendConfig: input.backendConfig,
+          triggerKind: input.triggerKind,
+          trigger: input.trigger,
+          enabled: input.enabled,
+        });
+      }
       await reload();
     },
-    [reload],
+    [reload, rules],
   );
 
   const remove = useCallback(
@@ -52,15 +71,40 @@ export function useAutomationRules() {
     [reload],
   );
 
-  /** 有効・停止の切り替え。ルール全体を保存し直す。 */
+  /** 有効・停止の切り替え。enabled だけを差分更新する。 */
   const toggle = useCallback(
     async (rule: AutomationRule) => {
-      await save({ ...rule, enabled: !rule.enabled });
+      const client = await appClient();
+      await client.updateAutomationRule(rule.id, { enabled: !rule.enabled });
+      await reload();
     },
-    [save],
+    [reload],
   );
 
   return { rules, status, reload, save, remove, toggle };
+}
+
+/** ルール編集フォームの全体値から、変更された項目だけを抽出する。 */
+function automationRulePatch(
+  previous: AutomationRule,
+  next: AutomationRuleInput,
+): AutomationRulePatch {
+  const patch: AutomationRulePatch = {};
+  if (previous.name !== next.name) patch.name = next.name;
+  if (previous.description !== next.description) patch.description = next.description;
+  if (previous.prompt !== next.prompt) patch.prompt = next.prompt;
+  if (previous.backend !== next.backend) patch.backend = next.backend;
+  if (!sameJson(previous.backendConfig, next.backendConfig)) {
+    patch.backendConfig = next.backendConfig;
+  }
+  if (previous.triggerKind !== next.triggerKind) patch.triggerKind = next.triggerKind;
+  if (!sameJson(previous.trigger, next.trigger)) patch.trigger = next.trigger;
+  if (previous.enabled !== next.enabled) patch.enabled = next.enabled;
+  return patch;
+}
+
+function sameJson(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
 }
 
 /** 実行履歴。実行のたびに読み直せるよう reload を返す。 */

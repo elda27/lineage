@@ -5,16 +5,6 @@
  */
 export interface SqlHandle {
   select<T>(query: string, bindValues?: unknown[]): Promise<T>;
-
-  /**
-   * INSERT / UPDATE / DELETE。
-   *
-   * 使ってよいのは lineage(links) を生まない行だけ（自動化ルールなど）。
-   * lineage を伴う書き込みは agentos（Rust）を通す。webview からも書けると
-   * hash-chain の作り方がアプリごとに分岐しうるため
-   * （docs/concept/MINIMAL_ARCHITECTURE.md「4. Lineage の真正性担保」）。
-   */
-  execute(query: string, bindValues?: unknown[]): Promise<unknown>;
 }
 
 /**

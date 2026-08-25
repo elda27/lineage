@@ -5,9 +5,9 @@
   "version": "0.0.6",
   "identifier": "com.lineage.fullos",
   "build": {
-    "beforeDevCommand": "pnpm dev",
+    "beforeDevCommand": "cargo build --manifest-path ../Cargo.toml -p agentos --locked && pnpm dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "pnpm build && cargo build --release --manifest-path ../Cargo.toml -p minos -p agentos",
+    "beforeBuildCommand": "pnpm build && cargo build --release --manifest-path ../Cargo.toml -p minos -p agentos --locked",
     "frontendDist": "../dist"
   },
   "app": {

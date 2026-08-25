@@ -200,6 +200,38 @@ CREATE TABLE IF NOT EXISTS settings (
   PRIMARY KEY (workspace_id, key)
 );
 
+-- Rust の差分 mutation API が管理する、entity ごとのローカル revision。
+--
+-- DB 行の updated_at を競合検出へ流用すると時計精度や client clock に依存するため、
+-- mutation transaction 内で単調増加する整数を別に持つ。既存 entity は revision 行が
+-- 無い状態を 0 とみなし、最初の mutation で 1 になる。
+CREATE TABLE IF NOT EXISTS entity_revisions (
+  workspace_id TEXT NOT NULL,
+  entity_kind TEXT NOT NULL,
+  entity_id TEXT NOT NULL,
+  revision INTEGER NOT NULL CHECK (revision > 0),
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (workspace_id, entity_kind, entity_id)
+);
+
+-- mutation の受理結果と、適用済み delta の台帳。operation_id を一意にして、transport
+-- retry で同じ変更を二重適用せず、競合後に同じ ID を別操作へ使い回すことも防ぐ。
+-- payload_json は status='applied' のとき将来 outbox / remote sync へ運ぶ domain delta
+-- であり、SQL 文や DB row 全体は保存しない。
+CREATE TABLE IF NOT EXISTS local_mutations (
+  operation_id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL,
+  entity_kind TEXT NOT NULL,
+  entity_id TEXT NOT NULL,
+  actor TEXT NOT NULL,
+  operation_kind TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('applied', 'conflict')),
+  payload_json TEXT NOT NULL,
+  base_revision INTEGER,
+  resulting_revision INTEGER NOT NULL,
+  created_at TEXT NOT NULL
+);
+
 -- ここから下は自動化（docs/ui.md「自動化画面」）が使う。
 --
 -- 自動化は「プロンプト ＋ 対象メモ」を生成AIに渡し、その結果を新しい document として
@@ -265,6 +297,12 @@ CREATE INDEX IF NOT EXISTS idx_tag_assignments_document ON tag_assignments(docum
 CREATE INDEX IF NOT EXISTS idx_tag_assignments_tag ON tag_assignments(tag_id);
 CREATE INDEX IF NOT EXISTS idx_document_metadata_document ON document_metadata(document_id);
 CREATE INDEX IF NOT EXISTS idx_document_states_workspace ON document_states(workspace_id);
+CREATE INDEX IF NOT EXISTS idx_local_mutations_workspace_created
+  ON local_mutations(workspace_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_local_mutations_outbox
+  ON local_mutations(workspace_id, status, created_at);
+CREATE INDEX IF NOT EXISTS idx_local_mutations_entity_revision
+  ON local_mutations(workspace_id, entity_kind, entity_id, resulting_revision);
 CREATE INDEX IF NOT EXISTS idx_automation_rules_workspace ON automation_rules(workspace_id, enabled);
 CREATE INDEX IF NOT EXISTS idx_automation_runs_rule ON automation_runs(rule_id, source_document_id);
 CREATE INDEX IF NOT EXISTS idx_automation_runs_started ON automation_runs(workspace_id, started_at DESC);

@@ -134,7 +134,8 @@ impl Services {
 
     /// 設定を保存する。fullos の設定画面からも同じ行を編集する。
     pub fn save_settings(&self, settings: Settings) -> Result<()> {
-        SaveSettings::new(&self.database, &self.clock).execute(&self.workspace_id, settings)
+        SaveSettings::new(&self.database, &self.clock, &self.ids)
+            .execute(&self.workspace_id, settings)
     }
 
     /// hash-chain の検証。

@@ -1,6 +1,7 @@
 import type { Account } from "@core/domain/account/Account";
 import type {
   AutomationRule,
+  AutomationRulePatch,
   AutomationRuleInput,
   AutomationRun,
 } from "@core/domain/automation/AutomationRule";
@@ -10,7 +11,7 @@ import type { Memo } from "@core/domain/memo/Memo";
 import type { AgentSkillPreference } from "@core/domain/skill/AgentSkill";
 import type { AgentSkillSync } from "@core/app/skill/SyncAgentSkills";
 import type { StorageUsage } from "@core/domain/storage/StorageUsage";
-import type { TagDefinition, TagUpdate } from "@core/domain/tag/TagDefinition";
+import type { TagDefinition, TagPatch } from "@core/domain/tag/TagDefinition";
 
 /**
  * UI が依存する唯一のインターフェース。
@@ -20,7 +21,7 @@ import type { TagDefinition, TagUpdate } from "@core/domain/tag/TagDefinition";
  */
 export interface ApplicationPort {
   listTags(): Promise<TagDefinition[]>;
-  updateTag(id: string, value: TagUpdate): Promise<void>;
+  updateTag(id: string, patch: TagPatch): Promise<void>;
   deleteTag(id: string): Promise<void>;
   /**
    * 記録を取得する。
@@ -74,8 +75,11 @@ export interface ApplicationPort {
   /** 自動化ルールを作成順に取得する（無効なものも含む）。 */
   listAutomationRules(): Promise<AutomationRule[]>;
 
-  /** 自動化ルールを作成・更新する。 */
-  saveAutomationRule(input: AutomationRuleInput): Promise<AutomationRule>;
+  /** 自動化ルールを作成する。 */
+  createAutomationRule(input: Omit<AutomationRuleInput, "id">): Promise<void>;
+
+  /** 自動化ルールの変更された項目だけを更新する。 */
+  updateAutomationRule(id: string, patch: AutomationRulePatch): Promise<void>;
 
   deleteAutomationRule(id: string): Promise<void>;
 

@@ -11,32 +11,13 @@ use crate::domain::automation::{
 use crate::domain::capture::DocumentAsset;
 use crate::domain::lineage::LineageRecord;
 use crate::domain::meta::{DocumentMetadata, MetaAssignment, MetaTag};
-use crate::domain::tag::{AutomationBinding, TagDefinition, ViewBinding};
+use crate::domain::mutation::{MutationRequest, MutationResult};
+use crate::domain::tag::TagDefinition;
 
+/// タグの参照境界。変更は `MutationStore` の typed delta を通す。
 pub trait TagRepository {
     fn list(&self, workspace_id: &str, include_deleted: bool) -> Result<Vec<TagDefinition>>;
     fn get(&self, id: &str) -> Result<Option<TagDefinition>>;
-    fn rename(
-        &self,
-        id: &str,
-        display_name: &str,
-        shorthand: Option<&str>,
-        now: &str,
-    ) -> Result<()>;
-    fn soft_delete(&self, id: &str, now: &str) -> Result<()>;
-    fn set_enabled(&self, id: &str, enabled: bool, now: &str) -> Result<()>;
-    fn set_view_binding(
-        &self,
-        binding: Option<&ViewBinding>,
-        tag_id: &str,
-        now: &str,
-    ) -> Result<()>;
-    fn set_automation_binding(
-        &self,
-        binding: Option<&AutomationBinding>,
-        tag_id: &str,
-        now: &str,
-    ) -> Result<()>;
 }
 
 /// document と link を同一トランザクションで確定させるための最小の口。
@@ -110,8 +91,8 @@ pub trait AutomationTx: LedgerTx {
 
 /// 自動化ルールの読み出し。
 ///
-/// 書き込み（作成・更新・削除）は lineage を生まないので、このポートには含めない。
-/// fullos が plugin-sql で直接書く（docs の「書き込みの境界」）。
+/// 書き込み（作成・差分更新・削除）はこの query port に含めず、Rust の
+/// `MutationStore` へ集約する。FullOS の WebView は SQL を直接実行しない。
 pub trait AutomationRuleQuery {
     /// workspace のルールをすべて返す（無効なものも含む。絞り込みは domain の役目）。
     fn all(&self, workspace_id: &str) -> Result<Vec<AutomationRule>>;
@@ -175,8 +156,20 @@ pub trait LineageQuery {
     fn list(&self, workspace_id: &str) -> Result<Vec<LineageRecord>>;
 }
 
-/// 利用者の設定の読み書き。
+/// 利用者の設定の参照境界。変更は `MutationStore` の typed delta を通す。
 pub trait SettingsRepository {
     fn all(&self, workspace_id: &str) -> Result<Vec<(String, String)>>;
-    fn set(&self, workspace_id: &str, key: &str, value: &str, now: &str) -> Result<()>;
+}
+
+/// 差分 mutation を冪等かつトランザクショナルに適用する書き込み境界。
+///
+/// UI や transport は SQL を知らず、この契約だけをローカル writer / 将来の remote API
+/// へ渡す。`base_revision` の比較、revision 採番、mutation log への記録は store が同じ
+/// transaction 内で行う。
+pub trait MutationStore {
+    fn apply_mutation(
+        &self,
+        request: &MutationRequest,
+        recorded_at: &str,
+    ) -> Result<MutationResult>;
 }

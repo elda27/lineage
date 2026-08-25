@@ -1,5 +1,6 @@
 mod automation;
 mod browser;
+mod mutation;
 mod schedule;
 mod skill;
 
@@ -21,7 +22,8 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         // 記録の読み出しは webview 側（core/infra/persistence/sqlite）が行う。
-        // Rust 側は SQLite ハンドルを渡すだけで、SQL は持たない。
+        // plugin-sql は select 専用で、書き込みは mutation コマンドから agentos を
+        // 経由して Rust 側の lineage-core application service に渡す。
         //
         // ただし自動化だけは例外で、lineage(links) への追記を伴うため同梱の agentos に
         // 委ねる（automation.rs）。webview から書けてしまうと、hash-chain の作り方が
@@ -48,6 +50,7 @@ pub fn run() {
             automation::credential_has,
             automation::credential_delete,
             automation::verify_lineage,
+            mutation::local_mutation_apply,
             browser::browser_agent_run,
             schedule::schedule_status,
             schedule::schedule_register,
