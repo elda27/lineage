@@ -2,7 +2,7 @@
 //!
 //! docs/ui.md「minos」に対応する。
 //! 起動するとタスクトレイに常駐し、Alt+Space で画面中央に現れる。
-//! 入力は SQLite（`db/schema.sql`）に保存され、同時に Lineage の hash-chain へ追記される。
+//! 入力は versioned migration 済みのローカル SQLite に保存され、同時に Lineage の hash-chain へ追記される。
 //!
 //! レイヤ構成は docs/concept/MINIMAL_ARCHITECTURE.md に従う。
 //! 依存方向は features/infra → app → domain（domain と app は lineage-core が持つ）。

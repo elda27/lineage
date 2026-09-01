@@ -1,7 +1,7 @@
 //! SQLite による port の実装。
 //!
-//! スキーマは `db/schema.sql` 1本（ローカル SQLite とクラウド D1 で共通）。
-//! ここに閉じ込めるのは SQL だけで、鎖の作り方（hash-chain）は domain 側にある。
+//! ローカル SQLite の schema migration は `infra::sqlite_migrations` が所有する。
+//! ここに閉じ込めるのは永続化 adapter で、鎖の作り方（hash-chain）は domain 側にある。
 
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
@@ -25,9 +25,9 @@ use crate::domain::ports::{
     TagRepository,
 };
 use crate::domain::tag::{AutomationBinding, TagDefinition, TagKind, ViewBinding};
+use crate::infra::sqlite_migrations::{migrate_unbacked_connection, open_and_migrate};
 
-/// ローカルとクラウドで共通のスキーマ。
-const SCHEMA_SQL: &str = include_str!("../../../db/schema.sql");
+pub use crate::infra::sqlite_migrations::MigrationReport;
 
 /// ローカル DB のファイル名。
 const DATABASE_FILE_NAME: &str = "lineage.db";
@@ -45,11 +45,6 @@ impl Database {
     /// 既定のデータディレクトリ（`%LOCALAPPDATA%\minos`）の DB を開く。
     pub fn open_default() -> Result<Self> {
         let path = Self::default_path()?;
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).with_context(|| {
-                format!("データディレクトリを作成できません: {}", parent.display())
-            })?;
-        }
         Self::open(&path)
     }
 
@@ -59,10 +54,27 @@ impl Database {
         Ok(dir.join("minos").join(DATABASE_FILE_NAME))
     }
 
+    /// 既定 DB の migration だけを実行する。
+    pub fn migrate_default() -> Result<MigrationReport> {
+        let path = Self::default_path()?;
+        Self::migrate_path(&path)
+    }
+
+    /// 指定 DB の migration だけを実行し、repository query を発行せず閉じる。
+    pub fn migrate_path(path: &Path) -> Result<MigrationReport> {
+        ensure_parent_directory(path)?;
+        let (conn, report) = open_and_migrate(path)?;
+        drop(conn);
+        Ok(report)
+    }
+
     pub fn open(path: &Path) -> Result<Self> {
-        let conn = Connection::open(path)
-            .with_context(|| format!("DB を開けません: {}", path.display()))?;
-        Self::from_connection(conn)
+        ensure_parent_directory(path)?;
+        let (conn, _) = open_and_migrate(path)?;
+        configure_connection(&conn)?;
+        Ok(Self {
+            conn: RefCell::new(conn),
+        })
     }
 
     #[cfg(any(test, feature = "testing"))]
@@ -71,155 +83,28 @@ impl Database {
     }
 
     fn from_connection(mut conn: Connection) -> Result<Self> {
-        conn.execute_batch(
-            "PRAGMA busy_timeout = 3000;
-             PRAGMA journal_mode = WAL;
-             PRAGMA synchronous = NORMAL;",
-        )?;
-        apply_schema(&mut conn, SCHEMA_SQL)?;
+        migrate_unbacked_connection(&mut conn)?;
+        configure_connection(&conn)?;
         Ok(Self {
             conn: RefCell::new(conn),
         })
     }
 }
 
-/// 互換更新と現行スキーマを同じトランザクションで適用する。
-fn apply_schema(conn: &mut Connection, schema_sql: &str) -> Result<()> {
-    let tx = conn
-        .transaction_with_behavior(TransactionBehavior::Immediate)
-        .context("スキーマ更新トランザクションを開始できません")?;
-    upgrade_automation_runs(&tx).context("既存 automation_runs の更新に失敗しました")?;
-    upgrade_local_mutations(&tx).context("既存 local_mutations の更新に失敗しました")?;
-    tx.execute_batch(schema_sql)
-        .context("スキーマの適用に失敗しました")?;
-    tx.commit().context("スキーマ更新を確定できません")?;
-    Ok(())
-}
-
-/// `automation_runs` に後から追加された列を、共有スキーマの適用前に補う。
-///
-/// `CREATE TABLE IF NOT EXISTS` は既存テーブルの列を更新しないため、旧DBでは
-/// スキーマ末尾の `execution_key` インデックス作成時に起動が失敗していた。
-/// 列ごとに存在を確認してから `ALTER TABLE` することで、旧DB・途中まで適用された
-/// DB・新規DBのいずれでも安全に再実行できるようにする。ALTER TABLE は同じ
-/// トランザクション内で行うため、途中で失敗した場合も一部だけ残らない。
-fn upgrade_automation_runs(tx: &rusqlite::Transaction<'_>) -> Result<()> {
-    let table_exists: bool = tx.query_row(
-        "SELECT EXISTS(
-             SELECT 1 FROM sqlite_master
-             WHERE type = 'table' AND name = 'automation_runs'
-         )",
-        [],
-        |row| row.get(0),
-    )?;
-    if !table_exists {
-        return Ok(());
-    }
-
-    let existing_columns = {
-        let mut statement = tx.prepare("PRAGMA table_info(automation_runs)")?;
-        statement
-            .query_map([], |row| row.get::<_, String>(1))?
-            .collect::<rusqlite::Result<Vec<_>>>()?
-    };
-
-    // These columns were introduced after the original ten-column table. Keep each
-    // definition identical to db/schema.sql so the resulting table is compatible
-    // with both local SQLite and D1.
-    const ADDED_COLUMNS: [(&str, &str); 8] = [
-        (
-            "tag_id",
-            "ALTER TABLE automation_runs ADD COLUMN tag_id TEXT",
-        ),
-        (
-            "recipe_name",
-            "ALTER TABLE automation_runs ADD COLUMN recipe_name TEXT",
-        ),
-        (
-            "recipe_ownership",
-            "ALTER TABLE automation_runs ADD COLUMN recipe_ownership TEXT",
-        ),
-        (
-            "processing_fingerprint",
-            "ALTER TABLE automation_runs ADD COLUMN processing_fingerprint TEXT",
-        ),
-        (
-            "input_fingerprint",
-            "ALTER TABLE automation_runs ADD COLUMN input_fingerprint TEXT",
-        ),
-        (
-            "execution_key",
-            "ALTER TABLE automation_runs ADD COLUMN execution_key TEXT",
-        ),
-        (
-            "output_fingerprint",
-            "ALTER TABLE automation_runs ADD COLUMN output_fingerprint TEXT",
-        ),
-        (
-            "forced",
-            "ALTER TABLE automation_runs ADD COLUMN forced INTEGER NOT NULL DEFAULT 0",
-        ),
-    ];
-
-    let missing = ADDED_COLUMNS
-        .iter()
-        .filter(|(name, _)| {
-            !existing_columns
-                .iter()
-                .any(|column| column.eq_ignore_ascii_case(name))
-        })
-        .map(|(_, statement)| *statement)
-        .collect::<Vec<_>>();
-    if missing.is_empty() {
-        return Ok(());
-    }
-
-    for statement in missing {
-        tx.execute_batch(statement)?;
+fn ensure_parent_directory(path: &Path) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("データディレクトリを作成できません: {}", parent.display()))?;
     }
     Ok(())
 }
 
-/// 差分 mutation API の初期版で作られた台帳へ receipt 列を補う。
-///
-/// `CREATE TABLE IF NOT EXISTS` だけでは既存表に列が増えず、status index の作成時に
-/// 起動できなくなる。既存行はすべて適用済み mutation なので `applied` として移行する。
-fn upgrade_local_mutations(tx: &rusqlite::Transaction<'_>) -> Result<()> {
-    let table_exists: bool = tx.query_row(
-        "SELECT EXISTS(
-             SELECT 1 FROM sqlite_master
-              WHERE type = 'table' AND name = 'local_mutations'
-         )",
-        [],
-        |row| row.get(0),
+fn configure_connection(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "PRAGMA busy_timeout = 3000;
+         PRAGMA journal_mode = WAL;
+         PRAGMA synchronous = NORMAL;",
     )?;
-    if !table_exists {
-        return Ok(());
-    }
-
-    let existing_columns = {
-        let mut statement = tx.prepare("PRAGMA table_info(local_mutations)")?;
-        statement
-            .query_map([], |row| row.get::<_, String>(1))?
-            .collect::<rusqlite::Result<Vec<_>>>()?
-    };
-    const ADDED_COLUMNS: [(&str, &str); 2] = [
-        ("actor", "TEXT NOT NULL DEFAULT 'local'"),
-        (
-            "status",
-            "TEXT NOT NULL DEFAULT 'applied' CHECK (status IN ('applied', 'conflict'))",
-        ),
-    ];
-    for (name, definition) in ADDED_COLUMNS {
-        if !existing_columns
-            .iter()
-            .any(|column| column.eq_ignore_ascii_case(name))
-        {
-            tx.execute_batch(&format!(
-                "ALTER TABLE local_mutations ADD COLUMN {name} {definition};"
-            ))?;
-        }
-    }
     Ok(())
 }
 
@@ -1483,187 +1368,24 @@ mod tests {
         )
     }
 
-    const LEGACY_AUTOMATION_RUNS: &str = "CREATE TABLE automation_runs (
-             id TEXT PRIMARY KEY,
-             workspace_id TEXT NOT NULL,
-             rule_id TEXT NOT NULL,
-             source_document_id TEXT NOT NULL,
-             result_document_id TEXT,
-             status TEXT NOT NULL,
-             backend_kind TEXT NOT NULL,
-             error TEXT,
-             started_at TEXT NOT NULL,
-             finished_at TEXT
-         )";
-
-    const LEGACY_LOCAL_MUTATIONS: &str = "CREATE TABLE local_mutations (
-             operation_id TEXT PRIMARY KEY,
-             workspace_id TEXT NOT NULL,
-             entity_kind TEXT NOT NULL,
-             entity_id TEXT NOT NULL,
-             operation_kind TEXT NOT NULL,
-             payload_json TEXT NOT NULL,
-             base_revision INTEGER,
-             resulting_revision INTEGER NOT NULL,
-             created_at TEXT NOT NULL
-         );
-         INSERT INTO local_mutations
-             (operation_id, workspace_id, entity_kind, entity_id, operation_kind,
-              payload_json, base_revision, resulting_revision, created_at)
-         VALUES
-             ('op-1', 'local', 'setting', 'key', 'setting_set', '{}', NULL, 1, 'old')";
-
-    fn automation_run_columns(conn: &Connection) -> Vec<String> {
-        let mut statement = conn.prepare("PRAGMA table_info(automation_runs)").unwrap();
-        statement
-            .query_map([], |row| row.get::<_, String>(1))
-            .unwrap()
-            .collect::<rusqlite::Result<Vec<_>>>()
-            .unwrap()
-    }
-
     #[test]
-    fn upgrades_legacy_automation_runs_before_applying_schema() {
-        let conn = Connection::open_in_memory().unwrap();
-        conn.execute_batch(LEGACY_AUTOMATION_RUNS).unwrap();
-        conn.execute(
-            "INSERT INTO automation_runs
-             (id, workspace_id, rule_id, source_document_id, status, backend_kind, started_at)
-             VALUES ('run-1', 'ws', 'rule-1', 'doc-1', 'succeeded', 'api_key', 'now')",
-            [],
-        )
-        .unwrap();
-
-        let db = Database::from_connection(conn).unwrap();
-        {
-            let conn = db.conn.borrow();
-            let columns = automation_run_columns(&conn);
-            for name in [
-                "tag_id",
-                "recipe_name",
-                "recipe_ownership",
-                "processing_fingerprint",
-                "input_fingerprint",
-                "execution_key",
-                "output_fingerprint",
-                "forced",
-            ] {
-                assert!(
-                    columns.iter().any(|column| column == name),
-                    "missing {name}"
-                );
-            }
-            let row: (String, Option<String>, i64) = conn
-                .query_row(
-                    "SELECT status, execution_key, forced FROM automation_runs WHERE id = 'run-1'",
-                    [],
-                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-                )
-                .unwrap();
-            assert_eq!(row, ("succeeded".into(), None, 0));
-        }
-
-        // Reopening an already upgraded database must be a no-op.
-        Database::from_connection(db.conn.into_inner()).unwrap();
-    }
-
-    #[test]
-    fn upgrades_legacy_local_mutations_before_creating_status_index() {
-        let conn = Connection::open_in_memory().unwrap();
-        conn.execute_batch(LEGACY_LOCAL_MUTATIONS).unwrap();
-
-        let db = Database::from_connection(conn).unwrap();
-        {
-            let conn = db.conn.borrow();
-            let receipt: (String, String) = conn
-                .query_row(
-                    "SELECT actor, status FROM local_mutations WHERE operation_id = 'op-1'",
-                    [],
-                    |row| Ok((row.get(0)?, row.get(1)?)),
-                )
-                .unwrap();
-            assert_eq!(receipt, ("local".into(), "applied".into()));
-            let index_exists: bool = conn
-                .query_row(
-                    "SELECT EXISTS(
-                         SELECT 1 FROM sqlite_master
-                          WHERE type = 'index' AND name = 'idx_local_mutations_outbox'
-                     )",
-                    [],
-                    |row| row.get(0),
-                )
-                .unwrap();
-            assert!(index_exists);
-        }
-
-        // Receipt columns already exist, so reopening must not try to add them again.
-        Database::from_connection(db.conn.into_inner()).unwrap();
-    }
-
-    #[test]
-    fn rolls_back_legacy_upgrade_when_schema_application_fails() {
-        let mut conn = Connection::open_in_memory().unwrap();
-        conn.execute_batch(LEGACY_AUTOMATION_RUNS).unwrap();
-
-        let result = apply_schema(
-            &mut conn,
-            "CREATE TABLE should_be_rolled_back (id TEXT); THIS IS NOT SQL;",
-        );
-
-        assert!(result.is_err());
-        assert_eq!(automation_run_columns(&conn).len(), 10);
-        let marker_exists: bool = conn
-            .query_row(
-                "SELECT EXISTS(
-                     SELECT 1 FROM sqlite_master
-                     WHERE type = 'table' AND name = 'should_be_rolled_back'
-                 )",
-                [],
-                |row| row.get(0),
-            )
-            .unwrap();
-        assert!(!marker_exists);
-    }
-
-    #[test]
-    fn opens_a_partially_upgraded_automation_runs_table() {
-        let conn = Connection::open_in_memory().unwrap();
-        conn.execute_batch(LEGACY_AUTOMATION_RUNS).unwrap();
-        conn.execute_batch(
-            "ALTER TABLE automation_runs ADD COLUMN tag_id TEXT;
-             ALTER TABLE automation_runs ADD COLUMN forced INTEGER NOT NULL DEFAULT 0;",
-        )
-        .unwrap();
-
-        let db = Database::from_connection(conn).unwrap();
-        let conn = db.conn.borrow();
-        let columns = automation_run_columns(&conn);
-        assert_eq!(columns.len(), 18);
-        assert!(
-            conn.query_row(
-                "SELECT 1 FROM sqlite_master
-                 WHERE type = 'index' AND name = 'idx_automation_runs_execution'",
-                [],
-                |row| row.get::<_, i64>(0),
-            )
-            .is_ok()
-        );
-    }
-
-    #[test]
-    fn applies_the_shared_schema_on_open() {
+    fn applies_the_versioned_local_schema_on_open() {
         let db = Database::open_in_memory().unwrap();
         let conn = db.conn.borrow();
         let count: i64 = conn
             .query_row(
-                "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name IN
+                "SELECT count(*) FROM sqlite_schema WHERE type = 'table' AND name IN
                  ('workspaces', 'documents', 'links', 'meta_tags', 'document_meta',
                   'document_states')",
                 [],
                 |row| row.get(0),
             )
             .unwrap();
+        let version: i64 = conn
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .unwrap();
         assert_eq!(count, 6);
+        assert_eq!(version, 1);
     }
 
     #[test]

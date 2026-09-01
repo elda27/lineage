@@ -16,7 +16,7 @@ DDD レイヤ構成・デュアルデプロイ・Lineage 真正性を壊さず�
 1. **デュアルデプロイ / 接続**: Tauri と Hono+Cloudflare Workers の両方で動く。frontend(特に Tauri)は
    ローカル接続(SQLite, 認証なし=`LocalAppClient`)とクラウド接続(D1, JWT 認証アリ=`HttpAppClient`)の両モードを取りうる。
    認証の有無は接続モードで決まる。新ユースケースは Local/Http 両 ApplicationPort 実装に配線する。
-2. **永続化1スキーマ**: ローカル=SQLite(`@tauri-apps/plugin-sql`)、クラウド=D1。スキーマは `db/schema.sql` 1本。
+2. **永続化contract共有 / migration分離**: ローカル SQLite は `lineage-core/src/infra/sqlite_migrations/` の append-only chain、クラウド D1 は `db/schema.sql` と D1 migration が所有する。
 3. **Lineage 真正性**: Lineage は append-only。`content_hash`/`prev_hash` の hash-chain を切らない。`LineageLedger` はローカル/クラウド共通。
 4. **DDD 依存方向**: features(presentation)/infra → app → domain。`core/domain` は外側を import しない。
 
@@ -52,8 +52,9 @@ await lineageRepo.append(link);
 
 ### 4. インフラ実装を両方そろえる
 - `core/infra/persistence/sqlite/` と `.../d1/` の **両方** に port 実装を追加。
-- SQL 文はほぼ共通。実行ハンドルだけ違う（plugin-sql の `Database` か `D1Database`）。
-- スキーマ変更時は `db/schema.sql` を更新し、対応する D1 マイグレーションも用意する。
+- domain contract は共有するが、SQL と migration は各 persistence adapter が所有する。
+- ローカル schema 変更は番号付き migration を追加し、公開済み migration を編集しない。
+- D1 schema 変更は `db/schema.sql` と対応する D1 migration を更新する。
 
 ### 5. 両ターゲットへ配線（composition root）
 - クラウド: `worker/index.ts` に Hono ルートを足し、`D1*Repository` を組み立てて application を呼ぶ。
@@ -74,7 +75,7 @@ await lineageRepo.append(link);
 - [ ] ユースケースが port(interface) のみに依存している。
 - [ ] Lineage を生む変更で hash-chain を切っていない（append-only / prev_hash 連結 / 同一 tx）。
 - [ ] sqlite と d1 の port 実装が両方そろっている。
-- [ ] スキーマ変更を `db/schema.sql` と D1 マイグレーションの両方へ反映した。
+- [ ] ローカル schema 変更は新しい append-only migration、D1 変更は `db/schema.sql` と D1 migration に反映した。
 - [ ] `ApplicationPort` の Local/Http 両実装と、worker ルートが配線済み。
 - [ ] `pnpm build` が通る。Lineage に触れたら `VerifyLineage` 相当の検証が通る。
 - [ ] Tauri deploy を壊していない。

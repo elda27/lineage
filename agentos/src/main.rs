@@ -108,6 +108,8 @@ enum Command {
     },
     /// 登録されているルールを一覧する。
     Rules,
+    /// ローカル SQLite schema を最新 version まで移行する。
+    Migrate,
     /// hash-chain を検証する。
     Verify,
     /// FullOS などから受け取った差分更新を適用する。
@@ -162,6 +164,9 @@ fn dispatch(cli: &Cli) -> Result<i32> {
     if let Command::Credential(command) = &cli.command {
         return run_credential(command, cli.global.json);
     }
+    if matches!(&cli.command, Command::Migrate) {
+        return run_migration(&cli.global);
+    }
 
     let session = Session::open(&cli.global)?;
     match &cli.command {
@@ -184,8 +189,32 @@ fn dispatch(cli: &Cli) -> Result<i32> {
         Command::Verify => session.verify(),
         Command::Apply { request_file } => session.apply(request_file),
         // 上で処理済み。
-        Command::Credential(_) => unreachable!(),
+        Command::Migrate | Command::Credential(_) => unreachable!(),
     }
+}
+
+fn run_migration(global: &Global) -> Result<i32> {
+    let report = match &global.db {
+        Some(path) => Database::migrate_path(path)
+            .with_context(|| format!("DB を移行できません: {}", path.display()))?,
+        None => Database::migrate_default()?,
+    };
+    if global.json {
+        println!("{}", serde_json::to_string(&report)?);
+    } else if let Some(path) = &report.backup_path {
+        println!(
+            "SQLite schema v{} -> v{} (backup: {})",
+            report.from_version,
+            report.to_version,
+            path.display()
+        );
+    } else {
+        println!(
+            "SQLite schema v{} -> v{}",
+            report.from_version, report.to_version
+        );
+    }
+    Ok(0)
 }
 
 fn run_credential(command: &CredentialCommand, json: bool) -> Result<i32> {

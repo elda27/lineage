@@ -182,13 +182,15 @@ Rust API の責務であり、plugin-sql の書き込み capability を前提に
 
 ---
 
-3. 永続化（SQLite ⇄ D1、スキーマは1つ）
+3. 永続化（ローカル SQLite と D1 は migration ownership を分離）
 
-D1 は SQLite 互換なので schema.sql を両方で使う。
-domain は AssetRepository などのインターフェースだけを知り、
-SQL は infrastructure 側に閉じ込める。
+両者は同じ domain contract を実装するが、migration のライフサイクルは異なる。
+ローカル SQLite は `lineage-core/src/infra/sqlite_migrations/` の append-only chain と
+`PRAGMA user_version` を使い、D1 は `db/schema.sql` と D1 migration で管理する。
+domain は AssetRepository などのインターフェースだけを知り、SQL と migration は
+infrastructure 側に閉じ込める。
 
-db/schema.sql（抜粋・共通）
+以下は D1 schema の抜粋。
 
 CREATE TABLE workspaces (
   id TEXT PRIMARY KEY,
@@ -405,7 +407,7 @@ bucket_name = "lineage-files"
 SUPABASE_JWKS_URL = "https://<project-ref>.supabase.co/auth/v1/.well-known/jwks.json"
 SUPABASE_JWT_ISSUER = "https://<project-ref>.supabase.co/auth/v1"
 
-D1 マイグレーション: `wrangler d1 migrations apply lineage`（db/schema.sql を起点）。
+D1 マイグレーション: `wrangler d1 migrations apply lineage`（`db/schema.sql` を起点）。ローカル SQLite には適用しない。
 
 ---
 
@@ -520,7 +522,7 @@ mutation 契約を基本とし、entity 全体の JSON を送る full update は
 
 10. 実装順
 
-1. db/schema.sql と core/domain（Asset / Lineage / LineageLedger）
+1. domain contract と、ローカル SQLite / D1 それぞれの migration chain
 2. SqliteAssetRepository / SqliteLineageRepository（ローカル先行）
 3. Rust mutation API + LocalAppClient で FullOS の差分更新を通す
 4. VerifyLineage（真正性チェック）を UI から呼べるようにする

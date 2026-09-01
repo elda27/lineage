@@ -194,6 +194,21 @@ fn invoke(app: &AppHandle, args: &[&str], stdin: Option<&str>) -> Result<String,
     invoke_with_policy(app, args, stdin, ExitCodePolicy::SuccessOnly)
 }
 
+fn local_database_path(local_data_dir: &Path) -> PathBuf {
+    local_data_dir.join("minos").join("lineage.db")
+}
+
+/// plugin-sql が DB を読み始める前に、唯一の migration owner である agentos を呼ぶ。
+pub(crate) fn migrate_database(app: &AppHandle) -> Result<(), String> {
+    let local_data_dir = app
+        .path()
+        .local_data_dir()
+        .map_err(|error| format!("ローカルデータディレクトリを特定できません: {error}"))?;
+    let database_path = local_database_path(&local_data_dir);
+    let database_path = database_path.to_string_lossy().into_owned();
+    invoke(app, &["--db", &database_path, "migrate"], None).map(|_| ())
+}
+
 /// stdout の JSON を値として返す。
 fn invoke_json_with_policy(
     app: &AppHandle,
@@ -367,6 +382,14 @@ pub async fn verify_lineage(app: AppHandle) -> Result<Value, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn derives_the_same_database_path_as_the_webview_client() {
+        assert_eq!(
+            local_database_path(Path::new("local-data")),
+            Path::new("local-data").join("minos").join("lineage.db")
+        );
+    }
 
     #[test]
     fn finds_workspace_root_from_tauri_target() {

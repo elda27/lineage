@@ -30,6 +30,10 @@ pub fn run() {
         // minos / agentos / fullos で分岐しうる。
         .plugin(tauri_plugin_sql::Builder::default().build())
         .setup(|app| {
+            // webview 側の plugin-sql が最初の query を発行する前に、Rust 側の
+            // versioned migration を必ず完了させる。
+            automation::migrate_database(app.handle()).map_err(std::io::Error::other)?;
+
             // GitHub Release の latest.json を見に行く自動更新。
             // エンドポイントと公開鍵は tauri.conf.json の plugins.updater。
             #[cfg(desktop)]

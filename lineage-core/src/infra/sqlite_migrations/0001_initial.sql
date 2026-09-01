@@ -1,8 +1,8 @@
--- Cloudflare D1 schema source.
+-- Local SQLite migration 0001: v0.0.9 baseline.
 --
--- Local SQLite has an independent, append-only migration chain under
--- lineage-core/src/infra/sqlite_migrations/. Do not use this file to mutate a
--- local database at application startup.
+-- This file is immutable once released. Local SQLite and remote D1 have separate
+-- migration ownership; future local changes must be appended as a new numbered
+-- migration rather than editing this file.
 
 CREATE TABLE IF NOT EXISTS workspaces (
   id TEXT PRIMARY KEY,
