@@ -4,12 +4,14 @@
 //!
 //! - アプリ情報（実行ファイル名・ウィンドウタイトル）は自動メタ情報になる
 //! - そのアプリで選択中のテキストは Ctrl+C を送って取り込む
-//!   （クリップボードが上書きされるため、自動で行うかは設定 `minos.auto_pull_foreground_text` で切り替える）
+//!   （クリップボードは一時使用後に復元し、自動で行うかは設定で切り替える）
 
 use std::path::Path;
 
 use windows::Win32::Foundation::{CloseHandle, HWND};
-use windows::Win32::System::DataExchange::GetClipboardSequenceNumber;
+use windows::Win32::System::Com::IDataObject;
+use windows::Win32::System::DataExchange::{CountClipboardFormats, GetClipboardSequenceNumber};
+use windows::Win32::System::Ole::{OleFlushClipboard, OleGetClipboard, OleSetClipboard};
 use windows::Win32::System::Threading::{
     AttachThreadInput, GetCurrentThreadId, OpenProcess, PROCESS_NAME_WIN32,
     PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
@@ -30,6 +32,21 @@ pub struct ForegroundApp {
     pub hwnd: isize,
     pub process_name: String,
     pub window_title: String,
+}
+
+/// `Ctrl+C` の前に退避したクリップボード。
+///
+/// OLE のデータオブジェクトを保持するため、テキストだけでなく画像、ファイル、
+/// Office 等の独自形式や遅延レンダリングも元の提供元が対応する範囲で復元できる。
+pub enum ClipboardSnapshot {
+    Empty,
+    Data(IDataObject),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClipboardRestore {
+    Restored,
+    SkippedBecauseChanged,
 }
 
 /// いまフォアグラウンドにあるウィンドウを観測する。
@@ -61,23 +78,36 @@ pub fn clipboard_sequence() -> u32 {
     unsafe { GetClipboardSequenceNumber() }
 }
 
-/// いま前面にあるアプリへ Ctrl+C を送る。
-///
-/// ホットキー（Alt+Space）の直後に呼ぶ想定。対象はすでに前面なのでフォーカス操作は要らないが、
-/// Alt がまだ押されたままだと Ctrl+Alt+C になってしまうため、先に Alt の離上を送る。
-///
-/// 呼び出し側はこのあとクリップボードの更新（`clipboard_sequence` の変化）を待つ。
-pub fn copy_from_foreground() {
-    unsafe {
-        let inputs = [
-            key_event(VK_MENU, true),
-            key_event(VK_CONTROL, false),
-            key_event(VK_C, false),
-            key_event(VK_C, true),
-            key_event(VK_CONTROL, true),
-        ];
-        SendInput(&inputs, size_of::<INPUT>() as i32);
+/// 現在のクリップボードを、あとで同じ内容へ戻せる形で保持する。
+pub fn snapshot_clipboard() -> windows::core::Result<ClipboardSnapshot> {
+    if unsafe { CountClipboardFormats() } == 0 {
+        Ok(ClipboardSnapshot::Empty)
+    } else {
+        unsafe { OleGetClipboard().map(ClipboardSnapshot::Data) }
     }
+}
+
+/// Lineage が読み取ったコピー結果から変化していない場合だけ、退避内容を戻す。
+///
+/// 途中で利用者や別アプリがコピーした内容を、古い退避内容で上書きしないための判定。
+pub fn restore_clipboard(
+    snapshot: ClipboardSnapshot,
+    copied_sequence: u32,
+) -> windows::core::Result<ClipboardRestore> {
+    if clipboard_sequence() != copied_sequence {
+        return Ok(ClipboardRestore::SkippedBecauseChanged);
+    }
+
+    match snapshot {
+        ClipboardSnapshot::Data(data) => unsafe {
+            OleSetClipboard(&data)?;
+            // 復元後に minos が終了しても内容が残るよう、遅延形式を実体化して所有権を外す。
+            OleFlushClipboard()?;
+        },
+        ClipboardSnapshot::Empty => unsafe { OleSetClipboard(None::<&IDataObject>)? },
+    }
+
+    Ok(ClipboardRestore::Restored)
 }
 
 /// 指定ウィンドウを前面に出してから Ctrl+C を送る。
@@ -97,6 +127,8 @@ pub fn send_copy_to(hwnd: isize) {
         let _ = SetForegroundWindow(hwnd);
 
         let inputs = [
+            // Alt+Space のキーアップ前に処理が届いても Ctrl+Alt+C にしない。
+            key_event(VK_MENU, true),
             key_event(VK_CONTROL, false),
             key_event(VK_C, false),
             key_event(VK_C, true),

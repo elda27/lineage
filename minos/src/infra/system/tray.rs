@@ -182,18 +182,16 @@ impl SystemThread {
 
     /// Alt+Space を押した瞬間のイベントを作る。
     ///
-    /// 直前のアプリの観測も Ctrl+C の送信も、minos のウィンドウを出す**前**でなければならない。
+    /// 直前のアプリの観測は、minos のウィンドウを出す**前**でなければならない。
     /// 出したあとでは前面が入れ替わり、対象が分からなくなる。
     fn hotkey_event(&self) -> SystemEvent {
         let context = foreground::capture_foreground();
 
-        // 自動取り込みが有効なときだけコピーを試みる。
-        // クリップボードは上書きされるが、それを承知の設定。
-        let selection = context.as_ref().filter(|_| self.auto_pull.is_checked()).map(|_| {
-            let before_sequence = foreground::clipboard_sequence();
-            foreground::copy_from_foreground();
-            SelectionCapture { before_sequence }
-        });
+        // Ctrl+C は、gpui 側で元のクリップボードを退避してから送る。
+        let selection = context
+            .as_ref()
+            .filter(|_| self.auto_pull.is_checked())
+            .map(|_| SelectionCapture);
 
         SystemEvent::ToggleCapture { context, selection }
     }

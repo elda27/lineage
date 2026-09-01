@@ -55,10 +55,8 @@ pub fn init(cx: &mut App) {
 /// 選択テキストの取り込み方。
 #[derive(Debug, Clone, Copy)]
 enum Pull {
-    /// ホットキー側が送信済み。待って結果を受け取るだけ（自動取り込み）。
-    Awaiting(SelectionCapture),
-    /// これから対象アプリへ切り替えて Ctrl+C を送る（明示操作）。
-    Request { hwnd: isize },
+    Automatic { hwnd: isize },
+    Explicit { hwnd: isize },
 }
 
 #[derive(Clone)]
@@ -134,7 +132,7 @@ impl CaptureView {
     }
 
     /// Alt+Space が押された瞬間に観測した「直前のアプリ」と、
-    /// そのとき送った Ctrl+C の結果待ちを受け取る。
+    /// 選択テキストを自動取得する要求を受け取る。
     pub fn set_context(
         &mut self,
         context: Option<ForegroundApp>,
@@ -148,8 +146,10 @@ impl CaptureView {
         self.input.update(cx, |input, cx| input.focus(window, cx));
         cx.notify();
 
-        if let Some(selection) = selection {
-            self.pull_selection(Pull::Awaiting(selection), window, cx);
+        if selection.is_some()
+            && let Some(source) = &self.context
+        {
+            self.pull_selection(Pull::Automatic { hwnd: source.hwnd }, window, cx);
         }
     }
 
@@ -557,28 +557,28 @@ impl CaptureView {
             return;
         };
 
-        self.pull_selection(Pull::Request { hwnd: source.hwnd }, window, cx);
+        self.pull_selection(Pull::Explicit { hwnd: source.hwnd }, window, cx);
     }
 
     /// 直前にフォアグラウンドだったアプリの選択テキストを取り込む。
     ///
     /// 選択範囲を読む標準的な方法が無いため、対象アプリへ Ctrl+C を送って
-    /// クリップボード経由で受け取る（クリップボードの内容は上書きされる）。
+    /// クリップボード経由で受け取り、途中で別の更新がなければ元の内容へ戻す。
     /// 待ち時間の間も入力はできるよう、待つのは非同期タスクに任せる。
     fn pull_selection(&mut self, pull: Pull, window: &mut Window, cx: &mut Context<Self>) {
         let app_window = self.app_window.clone();
 
         cx.spawn_in(window, async move |view, cx| {
-            // 明示操作のときだけ、対象に前面を渡して Ctrl+C を送る。
-            // 自動取り込みではホットキー側が送信済みなので待つだけでよい。
-            let (before_sequence, took_foreground) = match pull {
-                Pull::Awaiting(selection) => (selection.before_sequence, false),
-                Pull::Request { hwnd } => {
-                    let before = foreground::clipboard_sequence();
-                    foreground::send_copy_to(hwnd);
-                    (before, true)
-                }
+            let (hwnd, report_error) = match pull {
+                Pull::Automatic { hwnd } => (hwnd, false),
+                Pull::Explicit { hwnd } => (hwnd, true),
             };
+
+            // 退避できなくてもテキスト取得は続ける。その場合だけ復元を省略する。
+            let original = foreground::snapshot_clipboard().ok();
+
+            let before_sequence = foreground::clipboard_sequence();
+            foreground::send_copy_to(hwnd);
 
             let mut waited = Duration::ZERO;
             while foreground::clipboard_sequence() == before_sequence && waited < CLIPBOARD_WAIT {
@@ -587,7 +587,8 @@ impl CaptureView {
             }
 
             // 連番が変わらない＝選択が無かった、あるいはコピーできないアプリだった。
-            let copied = if foreground::clipboard_sequence() == before_sequence {
+            let copied_sequence = foreground::clipboard_sequence();
+            let copied = if copied_sequence == before_sequence {
                 None
             } else {
                 cx.update(|_, cx| cx.read_from_clipboard())
@@ -596,9 +597,20 @@ impl CaptureView {
                     .and_then(|item| item.text())
             };
 
-            if took_foreground {
-                app_window.show();
+            if let Some(original) = original {
+                // 読み取り後の連番が保たれている場合だけ戻す。別操作によるコピーを優先する。
+                match foreground::restore_clipboard(original, copied_sequence) {
+                    Ok(foreground::ClipboardRestore::Restored) => {}
+                    Ok(foreground::ClipboardRestore::SkippedBecauseChanged) => {
+                        log::info!(
+                            "取り込み中にクリップボードが更新されたため、元の内容を復元しませんでした"
+                        );
+                    }
+                    Err(error) => log::warn!("クリップボードを復元できません: {error}"),
+                }
             }
+
+            app_window.show();
 
             _ = view.update_in(cx, |this, window, cx| {
                 match copied {
@@ -610,7 +622,7 @@ impl CaptureView {
                         this.status = None;
                     }
                     // 自動取り込みは利用者が頼んだ操作ではないので、黙って何もしない。
-                    _ if !took_foreground => {}
+                    _ if !report_error => {}
                     _ => {
                         this.status = Some(Status::Error(
                             "直前のアプリからテキストを取得できませんでした".into(),

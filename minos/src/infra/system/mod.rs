@@ -13,14 +13,9 @@ pub mod window;
 
 pub use foreground::ForegroundApp;
 
-/// 直前のアプリへ Ctrl+C を送った、という記録。
-///
-/// コピーが終わるのを待たずに画面を出したいので、
-/// 「送った時点のクリップボード連番」だけを渡し、更新の検出は受け手に任せる。
+/// 直前のアプリから選択テキストを自動取得する、という要求。
 #[derive(Debug, Clone, Copy)]
-pub struct SelectionCapture {
-    pub before_sequence: u32,
-}
+pub struct SelectionCapture;
 
 /// OS 側から届くイベント。
 #[derive(Debug, Clone)]

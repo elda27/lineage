@@ -34,3 +34,6 @@ cron = "0.15"
 # テスト用の差し替え実装（FixedClock / SequentialIds / in-memory DB など）を公開する。
 # 利用側は dev-dependencies でこの feature を有効にする。
 testing = []
+
+[dev-dependencies]
+rustfmt = "0.10.0"

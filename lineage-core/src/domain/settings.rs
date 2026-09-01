@@ -11,8 +11,8 @@ pub mod key {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Settings {
-    /// 自動取り込み。有効にすると呼び出しのたびに直前のアプリへ Ctrl+C を送るため、
-    /// クリップボードの内容は上書きされる。
+    /// 自動取り込み。有効にすると呼び出しのたびに直前のアプリへ Ctrl+C を送り、
+    /// クリップボードを一時使用してから元の内容へ戻す。
     pub auto_pull_foreground_text: bool,
 }
 
