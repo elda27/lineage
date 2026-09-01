@@ -1,17 +1,17 @@
-name: Prepare formatted patch
+name: Apply formatted Rust changes
 
 on:
   pull_request:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
-  group: prepare-format-${{ github.event.pull_request.number }}
+  group: apply-format-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
-  prepare:
+  apply:
     runs-on: windows-latest
     timeout-minutes: 15
     steps:
@@ -24,7 +24,7 @@ jobs:
         with:
           components: rustfmt
 
-      - name: Prepare formatted Rust patch
+      - name: Apply and push formatted Rust changes
         shell: bash
         run: |
           cat .github/assistant.patch.gz.b64.part-* | tr -d '\r\n' > "$RUNNER_TEMP/assistant.patch.gz.b64"
@@ -32,13 +32,8 @@ jobs:
           git apply --index --exclude=.github/workflows/ci.yml --whitespace=nowarn --ignore-space-change --ignore-whitespace "$RUNNER_TEMP/assistant.patch"
           cargo fmt --all
           cargo fmt --manifest-path fullos/src-tauri/Cargo.toml --all
-          git add -A
-          git diff --cached --binary -- ':(glob)**/*.rs' > "$RUNNER_TEMP/pr43-formatted-rust.patch"
-          test -s "$RUNNER_TEMP/pr43-formatted-rust.patch"
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: pr43-formatted-rust-patch
-          path: ${{ runner.temp }}/pr43-formatted-rust.patch
-          if-no-files-found: error
-          retention-days: 1
+          git add -- ':(glob)**/*.rs'
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "style: format architecture boundary refactor"
+          git push origin "HEAD:${{ github.event.pull_request.head.ref }}"
