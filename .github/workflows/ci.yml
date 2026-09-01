@@ -36,6 +36,9 @@ jobs:
       - name: Rust workspace tests
         run: cargo test --workspace --all-targets --locked
 
+      - name: Build FullOS bundled executables
+        run: cargo build --release -p minos -p agentos --locked
+
       - name: FullOS Tauri tests
         run: cargo test --manifest-path fullos/src-tauri/Cargo.toml --all-targets --locked
 
