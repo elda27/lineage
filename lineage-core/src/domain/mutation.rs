@@ -89,8 +89,9 @@ impl MutationOperation {
             Self::ArchiveCompletedTasks { .. } => Some(workspace_id),
             Self::TagPatch { tag_id, .. } | Self::TagDelete { tag_id } => Some(tag_id),
             Self::AutomationRuleCreate { rule_id, .. } => rule_id.as_deref(),
-            Self::AutomationRulePatch { rule_id, .. }
-            | Self::AutomationRuleDelete { rule_id } => Some(rule_id),
+            Self::AutomationRulePatch { rule_id, .. } | Self::AutomationRuleDelete { rule_id } => {
+                Some(rule_id)
+            }
             Self::SettingSet { key, .. } => Some(key),
         }
     }
@@ -272,7 +273,10 @@ mod tests {
             shorthand: NullablePatch::Clear,
             ..Default::default()
         };
-        assert_eq!(serde_json::to_value(patch).unwrap(), serde_json::json!({"shorthand": null}));
+        assert_eq!(
+            serde_json::to_value(patch).unwrap(),
+            serde_json::json!({"shorthand": null})
+        );
     }
 
     #[test]

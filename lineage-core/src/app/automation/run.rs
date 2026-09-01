@@ -48,11 +48,7 @@ impl Automation<'_> {
     ///
     /// 無効なルールと条件に合わないルールは `matches` が落とす。
     /// スケジュール実行のルールも、条件さえ合えば手動で流せるように含める。
-    pub fn matching_rules(
-        &self,
-        workspace_id: &str,
-        memo_id: &str,
-    ) -> Result<Vec<AutomationRule>> {
+    pub fn matching_rules(&self, workspace_id: &str, memo_id: &str) -> Result<Vec<AutomationRule>> {
         let memo = self.require_memo(workspace_id, memo_id)?;
         Ok(self
             .rules

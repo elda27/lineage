@@ -84,20 +84,20 @@ pub fn spawn(auto_pull_foreground_text: bool) -> Result<SystemBridge> {
 
     std::thread::Builder::new()
         .name("minos-system".into())
-        .spawn(move || match SystemThread::new(sender, auto_pull_foreground_text) {
-            Ok(mut thread) => {
-                let _ = ready_tx.send(Ok(thread.thread_id));
-                thread.run();
-            }
-            Err(error) => {
-                let _ = ready_tx.send(Err(error));
-            }
-        })
+        .spawn(
+            move || match SystemThread::new(sender, auto_pull_foreground_text) {
+                Ok(mut thread) => {
+                    let _ = ready_tx.send(Ok(thread.thread_id));
+                    thread.run();
+                }
+                Err(error) => {
+                    let _ = ready_tx.send(Err(error));
+                }
+            },
+        )
         .context("OS 連携スレッドを起動できません")?;
 
-    let thread_id = ready_rx
-        .recv()
-        .context("OS 連携スレッドが応答しません")??;
+    let thread_id = ready_rx.recv().context("OS 連携スレッドが応答しません")??;
 
     Ok(SystemBridge {
         events: receiver,
@@ -220,11 +220,9 @@ impl SystemThread {
                 MENU_SHOW => self.emit(SystemEvent::ShowCapture {
                     context: foreground::capture_foreground(),
                 }),
-                MENU_AUTO_PULL => {
-                    self.emit(SystemEvent::SetAutoPullForegroundText(
-                        self.auto_pull.is_checked(),
-                    ))
-                }
+                MENU_AUTO_PULL => self.emit(SystemEvent::SetAutoPullForegroundText(
+                    self.auto_pull.is_checked(),
+                )),
                 MENU_LAUNCH_FULLOS => self.emit(SystemEvent::LaunchFullos),
                 MENU_VERIFY => self.emit(SystemEvent::VerifyLineage),
                 MENU_QUIT => self.emit(SystemEvent::Quit),

@@ -66,14 +66,27 @@ mod tests {
 
         let suggestions = CompleteMetaTag::new(&tags).execute("ws", "t", 10).unwrap();
         assert_eq!(
-            suggestions.iter().map(|s| s.label.as_str()).collect::<Vec<_>>(),
+            suggestions
+                .iter()
+                .map(|s| s.label.as_str())
+                .collect::<Vec<_>>(),
             vec!["タスク", "投資"]
         );
     }
 
     #[test]
     fn honours_the_limit() {
-        let tags = StubTags(vec![tag("a", None, 3), tag("b", None, 2), tag("c", None, 1)]);
-        assert_eq!(CompleteMetaTag::new(&tags).execute("ws", "", 2).unwrap().len(), 2);
+        let tags = StubTags(vec![
+            tag("a", None, 3),
+            tag("b", None, 2),
+            tag("c", None, 1),
+        ]);
+        assert_eq!(
+            CompleteMetaTag::new(&tags)
+                .execute("ws", "", 2)
+                .unwrap()
+                .len(),
+            2
+        );
     }
 }

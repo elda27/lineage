@@ -206,7 +206,15 @@ impl Key {
         let subkey = PCWSTR(subkey.as_ptr());
         let mut bytes = 0u32;
         let status = unsafe {
-            RegGetValueW(self.0, subkey, value, RRF_RT_REG_SZ, None, None, Some(&mut bytes))
+            RegGetValueW(
+                self.0,
+                subkey,
+                value,
+                RRF_RT_REG_SZ,
+                None,
+                None,
+                Some(&mut bytes),
+            )
         };
         if status != ERROR_SUCCESS {
             return None;

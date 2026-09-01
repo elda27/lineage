@@ -63,10 +63,9 @@ impl InferenceBackend for AnthropicBackend<'_> {
             );
         }
 
-        let api_key = self
-            .credentials
-            .secret(PROVIDER)?
-            .with_context(|| format!("{PROVIDER} の API キーが未登録です。設定画面で登録してください"))?;
+        let api_key = self.credentials.secret(PROVIDER)?.with_context(|| {
+            format!("{PROVIDER} の API キーが未登録です。設定画面で登録してください")
+        })?;
 
         let mut body = json!({
             "model": request.model.as_deref().unwrap_or(DEFAULT_MODEL),
@@ -96,7 +95,10 @@ impl InferenceBackend for AnthropicBackend<'_> {
         let status = response.status();
         let text = response.text().context("応答を読み取れません")?;
         if !status.is_success() {
-            bail!("Anthropic API がエラーを返しました ({status}): {}", summarize(&text));
+            bail!(
+                "Anthropic API がエラーを返しました ({status}): {}",
+                summarize(&text)
+            );
         }
 
         let message: MessageResponse =

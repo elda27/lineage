@@ -261,7 +261,9 @@ impl Session {
         reject_browser_backend(&rule)?;
 
         let backend = AnthropicBackend::new(&self.credentials);
-        let run = self.automation().run(&self.workspace, rule_id, memo_id, &backend)?;
+        let run = self
+            .automation()
+            .run(&self.workspace, rule_id, memo_id, &backend)?;
         self.report_run(&run)?;
         Ok(exit_code_for(&run))
     }
@@ -279,7 +281,9 @@ impl Session {
     }
 
     fn render(&self, rule_id: &str, memo_id: &str) -> Result<i32> {
-        let prompt = self.automation().prompt(&self.workspace, rule_id, memo_id)?;
+        let prompt = self
+            .automation()
+            .prompt(&self.workspace, rule_id, memo_id)?;
         if self.json {
             self.print_json(&serde_json::json!({ "prompt": prompt }))?;
         } else {
@@ -374,7 +378,8 @@ impl Session {
 
     fn verify(&self) -> Result<i32> {
         let records = self.database.list(&self.workspace)?;
-        let result = lineage_core::domain::lineage::LineageLedger::new(&self.hasher).verify(&records);
+        let result =
+            lineage_core::domain::lineage::LineageLedger::new(&self.hasher).verify(&records);
         if self.json {
             self.print_json(&serde_json::json!({
                 "ok": result.is_ok(),
@@ -384,7 +389,11 @@ impl Session {
         } else {
             println!("{result:?}");
         }
-        Ok(if result.is_ok() { 0 } else { EXIT_NOT_SUCCEEDED })
+        Ok(if result.is_ok() {
+            0
+        } else {
+            EXIT_NOT_SUCCEEDED
+        })
     }
 
     /// 差分更新を JSON で受け取り、共有 application service へ渡す。
@@ -393,8 +402,8 @@ impl Session {
     /// ライン引数に載せないことで、シェルの quoting とプロセス一覧への露出を避ける。
     fn apply(&self, request_file: &str) -> Result<i32> {
         let text = read_result(request_file)?;
-        let request: MutationRequest = serde_json::from_str(&text)
-            .context("差分更新リクエストの JSON を解釈できません")?;
+        let request: MutationRequest =
+            serde_json::from_str(&text).context("差分更新リクエストの JSON を解釈できません")?;
         ensure!(
             request.workspace_id == self.workspace,
             "request の workspaceId が --workspace と一致しません"

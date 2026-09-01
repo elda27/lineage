@@ -85,7 +85,10 @@ fn validate_tag_patch(patch: &TagPatch) -> Result<()> {
         );
     }
     if let NullablePatch::Set(view) = &patch.view {
-        ensure!(!view.trim().is_empty(), "view は空文字ではなく null で解除してください");
+        ensure!(
+            !view.trim().is_empty(),
+            "view は空文字ではなく null で解除してください"
+        );
     }
     if let NullablePatch::Set(recipe) = &patch.recipe {
         ensure!(
@@ -105,7 +108,11 @@ fn validate_rule_input(input: &AutomationRuleInput) -> Result<()> {
     );
     if input.trigger_kind == TriggerKind::Schedule {
         ensure!(
-            input.trigger.cron.as_deref().is_some_and(|cron| !cron.trim().is_empty()),
+            input
+                .trigger
+                .cron
+                .as_deref()
+                .is_some_and(|cron| !cron.trim().is_empty()),
             "schedule には trigger.cron が必要です"
         );
     }
@@ -130,7 +137,10 @@ fn validate_rule_patch(patch: &AutomationRulePatch) -> Result<()> {
         && let Some(trigger) = &patch.trigger
     {
         ensure!(
-            trigger.cron.as_deref().is_some_and(|cron| !cron.trim().is_empty()),
+            trigger
+                .cron
+                .as_deref()
+                .is_some_and(|cron| !cron.trim().is_empty()),
             "schedule には trigger.cron が必要です"
         );
     }

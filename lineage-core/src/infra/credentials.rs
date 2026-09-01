@@ -46,7 +46,8 @@ impl OsCredentialStore {
         match Self::entry(provider)?.delete_credential() {
             Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
             Err(error) => {
-                Err(anyhow::Error::new(error).context(format!("{provider} の資格情報を削除できません")))
+                Err(anyhow::Error::new(error)
+                    .context(format!("{provider} の資格情報を削除できません")))
             }
         }
     }

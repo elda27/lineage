@@ -331,12 +331,18 @@ mod tests {
             metas: vec![MetaCondition::label("タスク")],
             cron: None,
         });
-        assert!(matches(&r, &memo(vec![MetaAssignment::user("タスク", None)])));
+        assert!(matches(
+            &r,
+            &memo(vec![MetaAssignment::user("タスク", None)])
+        ));
         assert!(matches(
             &r,
             &memo(vec![MetaAssignment::user("タスク", Some("急ぎ".into()))])
         ));
-        assert!(!matches(&r, &memo(vec![MetaAssignment::user("投資", None)])));
+        assert!(!matches(
+            &r,
+            &memo(vec![MetaAssignment::user("投資", None)])
+        ));
     }
 
     #[test]
@@ -348,8 +354,14 @@ mod tests {
             }],
             cron: None,
         });
-        assert!(matches(&r, &memo(vec![MetaAssignment::auto("app", "chrome.exe")])));
-        assert!(!matches(&r, &memo(vec![MetaAssignment::auto("app", "code.exe")])));
+        assert!(matches(
+            &r,
+            &memo(vec![MetaAssignment::auto("app", "chrome.exe")])
+        ));
+        assert!(!matches(
+            &r,
+            &memo(vec![MetaAssignment::auto("app", "code.exe")])
+        ));
         // 値ありの条件は、値なしのメタ情報には一致しない。
         assert!(!matches(&r, &memo(vec![MetaAssignment::user("app", None)])));
     }
@@ -360,7 +372,10 @@ mod tests {
             metas: vec![MetaCondition::label("タスク"), MetaCondition::label("投資")],
             cron: None,
         });
-        assert!(!matches(&r, &memo(vec![MetaAssignment::user("タスク", None)])));
+        assert!(!matches(
+            &r,
+            &memo(vec![MetaAssignment::user("タスク", None)])
+        ));
         assert!(matches(
             &r,
             &memo(vec![
@@ -415,7 +430,11 @@ mod tests {
         for backend in [BackendKind::ApiKey, BackendKind::Browser] {
             assert_eq!(BackendKind::parse(backend.as_str()), Some(backend));
         }
-        for trigger in [TriggerKind::Manual, TriggerKind::MetaMatch, TriggerKind::Schedule] {
+        for trigger in [
+            TriggerKind::Manual,
+            TriggerKind::MetaMatch,
+            TriggerKind::Schedule,
+        ] {
             assert_eq!(TriggerKind::parse(trigger.as_str()), Some(trigger));
         }
         for status in [

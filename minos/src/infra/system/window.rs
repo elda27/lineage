@@ -124,9 +124,10 @@ pub fn activate_other_instance() {
 }
 
 fn is_same_executable(pid: u32) -> bool {
-    let ours = std::env::current_exe()
-        .ok()
-        .and_then(|path| path.file_name().map(|name| name.to_string_lossy().into_owned()));
+    let ours = std::env::current_exe().ok().and_then(|path| {
+        path.file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+    });
     match (ours, foreground::process_name_of_pid(pid)) {
         (Some(ours), Some(theirs)) => ours.eq_ignore_ascii_case(&theirs),
         _ => false,

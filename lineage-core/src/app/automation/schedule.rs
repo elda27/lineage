@@ -12,10 +12,7 @@ use chrono::{DateTime, Utc};
 pub fn is_due(expression: &str, last: DateTime<Utc>, now: DateTime<Utc>) -> Result<bool> {
     let schedule = cron::Schedule::from_str(expression)
         .with_context(|| format!("cron 式を解釈できません: {expression}"))?;
-    Ok(schedule
-        .after(&last)
-        .next()
-        .is_some_and(|next| next <= now))
+    Ok(schedule.after(&last).next().is_some_and(|next| next <= now))
 }
 
 pub fn parse_time(value: &str) -> Result<DateTime<Utc>> {

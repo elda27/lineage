@@ -14,8 +14,7 @@ use serde_json::Value;
 use crate::domain::shared::{Hasher, canonicalize};
 
 /// 鎖の先頭に使う定数。
-pub const GENESIS_HASH: &str =
-    "0000000000000000000000000000000000000000000000000000000000000000";
+pub const GENESIS_HASH: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 
 /// relation_type の初期セット。
 ///
@@ -86,9 +85,14 @@ impl LineageRecord {
 /// 検証結果。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VerifyResult {
-    Ok { checked: usize },
+    Ok {
+        checked: usize,
+    },
     /// `seq` の位置で鎖が壊れている。
-    Broken { broken_at: i64, reason: BrokenReason },
+    Broken {
+        broken_at: i64,
+        reason: BrokenReason,
+    },
 }
 
 impl VerifyResult {
@@ -219,7 +223,11 @@ mod tests {
         let ledger = LineageLedger::new(&hasher);
         let mut records: Vec<LineageRecord> = Vec::new();
         for i in 0..len {
-            let next = ledger.append_next(records.last(), format!("link-{i}"), input(&format!("doc-{i}")));
+            let next = ledger.append_next(
+                records.last(),
+                format!("link-{i}"),
+                input(&format!("doc-{i}")),
+            );
             records.push(next);
         }
         records

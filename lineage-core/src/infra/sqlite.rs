@@ -7,9 +7,7 @@ use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, ensure};
-use rusqlite::{
-    Connection, OptionalExtension, Row, TransactionBehavior, params, params_from_iter,
-};
+use rusqlite::{Connection, OptionalExtension, Row, TransactionBehavior, params, params_from_iter};
 
 use crate::domain::automation::{
     AutomationRule, AutomationRun, BackendConfig, BackendKind, MemoSnapshot, RunStatus, Trigger,
@@ -23,8 +21,8 @@ use crate::domain::mutation::{
 };
 use crate::domain::ports::{
     AutomationRuleQuery, AutomationRunStore, AutomationStore, AutomationTx, CaptureStore,
-    CaptureTx, LedgerTx, LineageQuery, MemoQuery, MetaTagQuery, MutationStore,
-    SettingsRepository, TagRepository,
+    CaptureTx, LedgerTx, LineageQuery, MemoQuery, MetaTagQuery, MutationStore, SettingsRepository,
+    TagRepository,
 };
 use crate::domain::tag::{AutomationBinding, TagDefinition, TagKind, ViewBinding};
 
@@ -94,8 +92,7 @@ fn apply_schema(conn: &mut Connection, schema_sql: &str) -> Result<()> {
     upgrade_local_mutations(&tx).context("既存 local_mutations の更新に失敗しました")?;
     tx.execute_batch(schema_sql)
         .context("スキーマの適用に失敗しました")?;
-    tx.commit()
-        .context("スキーマ更新を確定できません")?;
+    tx.commit().context("スキーマ更新を確定できません")?;
     Ok(())
 }
 
@@ -130,7 +127,10 @@ fn upgrade_automation_runs(tx: &rusqlite::Transaction<'_>) -> Result<()> {
     // definition identical to db/schema.sql so the resulting table is compatible
     // with both local SQLite and D1.
     const ADDED_COLUMNS: [(&str, &str); 8] = [
-        ("tag_id", "ALTER TABLE automation_runs ADD COLUMN tag_id TEXT"),
+        (
+            "tag_id",
+            "ALTER TABLE automation_runs ADD COLUMN tag_id TEXT",
+        ),
         (
             "recipe_name",
             "ALTER TABLE automation_runs ADD COLUMN recipe_name TEXT",
@@ -509,7 +509,6 @@ impl TagRepository for Database {
              LEFT JOIN automation_bindings a ON a.tag_id=t.id WHERE t.id=?1",
             params![id], row_to_tag_definition).optional()?)
     }
-
 }
 
 fn row_to_tag_definition(row: &Row<'_>) -> rusqlite::Result<TagDefinition> {
@@ -738,12 +737,7 @@ fn apply_operation(
                      ON CONFLICT(document_id) DO UPDATE
                        SET archived_at = excluded.archived_at,
                            updated_at = excluded.updated_at",
-                    params![
-                        memo_id,
-                        workspace_id,
-                        archived.then_some(now),
-                        now
-                    ],
+                    params![memo_id, workspace_id, archived.then_some(now), now],
                 )?;
             }
             if let Some(trashed) = patch.trashed {
@@ -793,7 +787,10 @@ fn apply_operation(
         MutationOperation::TagPatch { tag_id, patch } => {
             let kind = require_tag_kind(tx, workspace_id, tag_id)?;
             if let Some(display_name) = &patch.display_name {
-                ensure!(kind == "user", "組み込みタグの displayName は変更できません");
+                ensure!(
+                    kind == "user",
+                    "組み込みタグの displayName は変更できません"
+                );
                 tx.execute(
                     "UPDATE tag_definitions SET display_name = ?2 WHERE id = ?1",
                     params![tag_id, display_name],
@@ -823,7 +820,10 @@ fn apply_operation(
             match &patch.view {
                 NullablePatch::Unchanged => {}
                 NullablePatch::Clear => {
-                    tx.execute("DELETE FROM view_bindings WHERE tag_id = ?1", params![tag_id])?;
+                    tx.execute(
+                        "DELETE FROM view_bindings WHERE tag_id = ?1",
+                        params![tag_id],
+                    )?;
                 }
                 NullablePatch::Set(view) => {
                     tx.execute(
@@ -844,7 +844,11 @@ fn apply_operation(
                     )?;
                 }
                 NullablePatch::Set(recipe) => {
-                    let ownership = if recipe.managed { "managed" } else { "external" };
+                    let ownership = if recipe.managed {
+                        "managed"
+                    } else {
+                        "external"
+                    };
                     tx.execute(
                         "INSERT INTO automation_bindings
                              (tag_id, recipe_name, ownership, enabled, updated_at)
@@ -1031,20 +1035,20 @@ fn require_automation_rule(
     Ok(())
 }
 
-fn ensure_valid_automation_rule(
-    tx: &rusqlite::Transaction<'_>,
-    rule_id: &str,
-) -> Result<()> {
+fn ensure_valid_automation_rule(tx: &rusqlite::Transaction<'_>, rule_id: &str) -> Result<()> {
     let (trigger_kind, trigger_json): (String, String) = tx.query_row(
         "SELECT trigger_kind, trigger_config FROM automation_rules WHERE id = ?1",
         params![rule_id],
         |row| Ok((row.get(0)?, row.get(1)?)),
     )?;
     if trigger_kind == "schedule" {
-        let trigger: Trigger = serde_json::from_str(&trigger_json)
-            .context("trigger_config を解釈できません")?;
+        let trigger: Trigger =
+            serde_json::from_str(&trigger_json).context("trigger_config を解釈できません")?;
         ensure!(
-            trigger.cron.as_deref().is_some_and(|cron| !cron.trim().is_empty()),
+            trigger
+                .cron
+                .as_deref()
+                .is_some_and(|cron| !cron.trim().is_empty()),
             "schedule には trigger.cron が必要です"
         );
     }
@@ -1479,8 +1483,7 @@ mod tests {
         )
     }
 
-    const LEGACY_AUTOMATION_RUNS: &str =
-        "CREATE TABLE automation_runs (
+    const LEGACY_AUTOMATION_RUNS: &str = "CREATE TABLE automation_runs (
              id TEXT PRIMARY KEY,
              workspace_id TEXT NOT NULL,
              rule_id TEXT NOT NULL,
@@ -1493,8 +1496,7 @@ mod tests {
              finished_at TEXT
          )";
 
-    const LEGACY_LOCAL_MUTATIONS: &str =
-        "CREATE TABLE local_mutations (
+    const LEGACY_LOCAL_MUTATIONS: &str = "CREATE TABLE local_mutations (
              operation_id TEXT PRIMARY KEY,
              workspace_id TEXT NOT NULL,
              entity_kind TEXT NOT NULL,
@@ -1512,9 +1514,7 @@ mod tests {
              ('op-1', 'local', 'setting', 'key', 'setting_set', '{}', NULL, 1, 'old')";
 
     fn automation_run_columns(conn: &Connection) -> Vec<String> {
-        let mut statement = conn
-            .prepare("PRAGMA table_info(automation_runs)")
-            .unwrap();
+        let mut statement = conn.prepare("PRAGMA table_info(automation_runs)").unwrap();
         statement
             .query_map([], |row| row.get::<_, String>(1))
             .unwrap()
@@ -1548,7 +1548,10 @@ mod tests {
                 "output_fingerprint",
                 "forced",
             ] {
-                assert!(columns.iter().any(|column| column == name), "missing {name}");
+                assert!(
+                    columns.iter().any(|column| column == name),
+                    "missing {name}"
+                );
             }
             let row: (String, Option<String>, i64) = conn
                 .query_row(
@@ -1833,7 +1836,10 @@ mod tests {
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
             .unwrap();
-        assert_eq!(state, (1, Some("now".into()), Some("archived-before".into())));
+        assert_eq!(
+            state,
+            (1, Some("now".into()), Some("archived-before".into()))
+        );
 
         let duplicate = db.apply_mutation(&request, "later").unwrap();
         assert_eq!(duplicate.status, MutationStatus::Duplicate);
@@ -2125,7 +2131,12 @@ mod tests {
             .unwrap();
         assert_eq!(
             row,
-            ("name".into(), "keep this prompt".into(), 0, "patched".into())
+            (
+                "name".into(),
+                "keep this prompt".into(),
+                0,
+                "patched".into()
+            )
         );
     }
 }
