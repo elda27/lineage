@@ -12,43 +12,35 @@ bundles := if os() == "windows" { "msi" } else if os() == "macos" { "dmg" } else
 [private]
 default:
     @just --list
-
 # fullos の依存を入れる。
 install:
     pnpm --dir ./fullos install
-
 # fullos を開発モードで起動する（Tauri + vite）。
 dev: install
     pnpm --dir ./fullos run tauri dev
-
 # minos と agentos をリリースビルドする。bundle 時は beforeBuildCommand が同じことをする。
 #
 # 出力はワークスペース共通の ./target/release/ に入る。fullos の tauri.conf.json は
 # そこを bundle.resources として参照している。
 build-rust:
     cargo build --release -p minos -p agentos
-
 # Rust 側のテスト（ドメイン・hash-chain・自動化）。
 test-rust:
     cargo test -p lineage-core -p agentos
-
 # VERSION を唯一の入力として、各パッケージのバージョン表記を同期する。
 [doc("VERSION の値を各マニフェストへ反映する")]
 version-sync:
     node .github/scripts/set-version.mjs
-
 [doc("各マニフェストのバージョンが VERSION と一致するか検査する")]
 version-check:
     node .github/scripts/set-version.mjs --check
-
 [doc("リリースバージョンを変更し、各マニフェストへ反映する")]
 version-set version:
     node .github/scripts/set-version.mjs --set {{ version }}
-
+    git tag -a v{{ version }} -m "Release {{ version }}"
 [private]
 bundle-with target: install
     pnpm --dir ./fullos run tauri build --bundles {{ target }}
-
 # ホスト OS 向けのインストーラを作る（Windows: msi / macOS: dmg / Linux: deb,appimage）。
 #
 # 注意: 現状 tauri.conf.json の bundle.resources が minos.exe 固定なので、
