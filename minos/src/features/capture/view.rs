@@ -38,13 +38,18 @@ use crate::infra::system::{ForegroundApp, SelectionCapture, launcher};
 const CLIPBOARD_WAIT: Duration = Duration::from_millis(400);
 const CLIPBOARD_POLL: Duration = Duration::from_millis(20);
 
-actions!(minos, [LaunchFullos]);
+actions!(minos, [InsertHash, InsertPlus, LaunchFullos]);
 
 const KEY_CONTEXT: &str = "Minos";
 
 /// minos の入力画面で使うキーボードショートカットを登録する。
 pub fn init(cx: &mut App) {
-    cx.bind_keys([KeyBinding::new("alt-f", LaunchFullos, Some(KEY_CONTEXT))]);
+    cx.bind_keys([
+        // 記号を文字として受け取れないキーボード配列でも、補完の起点を入力できるようにする。
+        KeyBinding::new("#", InsertHash, Some(KEY_CONTEXT)),
+        KeyBinding::new("+", InsertPlus, Some(KEY_CONTEXT)),
+        KeyBinding::new("alt-f", LaunchFullos, Some(KEY_CONTEXT)),
+    ]);
 }
 
 /// 選択テキストの取り込み方。
@@ -411,6 +416,33 @@ impl CaptureView {
         }
     }
 
+    fn insert_completion_prefix(
+        &mut self,
+        prefix: &'static str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.input.focus_handle(cx).is_focused(window) {
+            return;
+        }
+
+        self.input
+            .update(cx, |input, cx| input.insert(prefix, window, cx));
+        cx.stop_propagation();
+    }
+
+    /// 補完候補が表示されている間の Esc は、ウィンドウではなく候補だけを閉じる。
+    ///
+    /// capture フェーズで判定することで、入力コンポーネントの action routing の状態に
+    /// 依存せず、Esc を確実に補完 UI が先に消費する。
+    fn on_escape(&mut self, _: &Escape, _: &mut Window, cx: &mut Context<Self>) {
+        if self.input.read(cx).completion_menu_state().open {
+            self.input
+                .update(cx, |input, cx| input.dismiss_completion_overlay(cx));
+            cx.stop_propagation();
+        }
+    }
+
     fn render_tags(&self, cx: &mut Context<Self>) -> impl IntoElement {
         h_flex()
             .gap_1()
@@ -623,9 +655,16 @@ impl Render for CaptureView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         v_flex()
             .key_context(KEY_CONTEXT)
+            .on_action(cx.listener(|this, _: &InsertHash, window, cx| {
+                this.insert_completion_prefix("#", window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &InsertPlus, window, cx| {
+                this.insert_completion_prefix("+", window, cx)
+            }))
             .on_action(cx.listener(|this, _: &LaunchFullos, _window, cx| this.launch_fullos(cx)))
-            // 入力欄が処理しなかった Esc だけがここに届く（補完中は補完が閉じるだけ）。
+            // 補完中の Esc は capture フェーズで止まり、それ以外だけがここに届く。
             .on_action(cx.listener(|this, _: &Escape, _window, cx| this.dismiss(cx)))
+            .capture_action(cx.listener(Self::on_escape))
             .capture_action(cx.listener(Self::on_backspace))
             .size_full()
             .p_4()
