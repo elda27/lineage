@@ -2,170 +2,128 @@
 
 ## 1. 目的
 
-ADRは、アーキテクチャ上の重要な意思決定を記録します。現在の設計仕様そのものではなく、次を残すためのものです。
+ADR は、アーキテクチャ上の重要な意思決定について、背景、選択肢、採用理由、結果を記録する。
+現在の仕様そのものは [`/docs/arch/README.md`](../README.md) に記載し、ADR は「なぜその構造を
+選んだか」を長期間参照できる履歴とする。
 
-- どのような状況や制約があったか
-- 何を決定したか
-- どの選択肢を検討したか
-- なぜその案を採用し、他案を採用しなかったか
-- 決定によって生じる利点、欠点、制約
-- 後からどのADRによって置き換えられたか
+対象は infrastructure に限定しない。次のような、広範囲へ影響し、後から変更するコストが高い
+判断を ADR として残す。
 
-「現在のアーキテクチャがどうなっているか」は [/docs/arch/README.md](../README.md) に記載します。ADRは「なぜその状態に至ったか」の履歴です。
+- component / bounded context / aggregate の境界
+- API、event、外部 system との interface
+- data ownership、consistency、persistence、sync
+- dependency direction と layer structure
+- security、availability、performance、audit 等の quality attribute
+- build、delivery、operation 上の長期的な制約
 
-対象はインフラやシステム構成に限定しません。次のような、広範囲に影響し、後から変更するコストが高い判断もADRの対象です。
+単一 method 内の実装、容易に変更できる命名、一時的な workaround、個別 API field などは原則として
+Issue、PR、設計文書で管理する。
 
-- システムやコンポーネントの分割
-- ドメインモデル、Bounded Context、集約境界
-- API、イベント、外部システムとのインターフェース
-- データ所有権、整合性、同期方式
-- 依存方向やレイヤー構造
-- セキュリティ、可用性、性能、監査などの品質特性
-- 開発・運用上の長期的な制約となる技術選定
+## 2. 新規 ADR の作成方法
 
-局所的で容易に変更できる実装詳細は、原則としてADRにしません。
+1. 本 README と既存 ADR を検索し、同じ decision が存在しないことを確認する。
+2. 既存の最大番号に 1 を加えた 4 桁の通し番号を使用する。欠番は許容し、番号を再利用しない。
+3. [`template.md`](./template.md) をコピーし、
+   `<4桁番号>-<decisionを表すkebab-case>.md` として本 directory 直下へ置く。
+4. frontmatter と全 section を記載する。該当しない section は理由を明記する。
+5. 本 README の「全 ADR 一覧」「現在有効な ADR」「superseded 関係」を更新する。
+6. 現在の architecture が変わる場合は [`../README.md`](../README.md) と関連設計文書も更新する。
 
-### ADRを作成する条件
+ADR は本 directory 直下に flat に配置する。classification は directory ではなく `area`、`scope`、
+`status` で表す。
 
-次のいずれかに該当する場合は、ADRの作成を検討してください。
+accepted ADR の Context / Decision / Options considered / Consequences を、後から意味が変わる形で
+書き換えない。decision を変更する場合は新しい ADR を作り、旧 ADR を `superseded` にする。
 
-- 複数コンポーネントまたは複数チームに影響する
-- 後から変更するコストが高い
-- 将来の設計・実装上の選択肢を大きく制限する
-- システムの境界、依存方向、データ所有権を決める
-- APIやイベントの互換性に長期的な影響がある
-- セキュリティ、可用性、性能、保守性などへ大きく影響する
-- 後から「なぜこの構造になっているのか」が疑問になりそう
-- 既存のアーキテクチャ方針を変更または撤回する
+ADR は議論全文や実装状況を保存する場所ではない。議論元は `discussion` と References から参照し、
+他文書や code の「現在実装済み／未実装」といった陳腐化する状態は living document で管理する。
 
-次のような内容は、原則としてADRにしないでください。
-
-- 単一メソッドや単一クラス内で完結する実装詳細
-- 容易に変更可能な命名
-- 一時的な回避策で、設計上の制約を残さないもの
-- APIの個別フィールドなど、仕様書で管理すべき詳細
-- チケットやPRだけで十分に追跡できる小規模な変更
-
-## 2. 新規ADRの作成方法
-
-1. **重複確認を行う**（後述の「7. ADR作成前の確認事項」を参照）。既存ADRに同じ意思決定が記録されている場合、新しいADRを作成しないでください。
-2. **番号を採番する。** 既存の最大番号に1を加えた4桁の通し番号を使用します。番号の再利用・振り直しは行いません。削除・却下による欠番は許容します。
-3. **[template.md](./template.md) をコピーし**、`NNNN-<決定内容を表すkebab-case>.md` という名前で本ディレクトリ直下に作成します。
-4. **frontmatterと本文を記載する。** 該当しないセクションも理由なく削除せず、該当しないことを簡潔に記載します。
-5. **本README の索引（一覧・有効ADR・superseded関係）を手動で更新する。**
-6. 決定により現在のアーキテクチャが変わる場合は、[/docs/arch/README.md](../README.md) と関連設計文書も同時に更新します。
-
-### 配置ルール
-
-- ADRは本ディレクトリ（`/docs/arch/adr`）直下に**フラットに**配置します。
-- 分類別・状態別のサブディレクトリ（`adr/domain/`、`adr/accepted/` など）は作成しません。分類はディレクトリではなくfrontmatterのメタデータ（`area`、`scope`、`status`）で管理します。
-
-### ファイル名
-
-```
-<4桁の番号>-<決定内容を表すkebab-case>.md
-```
-
-タイトルには、単なる技術名ではなく、何を決定したADRなのかが分かる文言を使用します。
-
-- 悪い例: `0004-kafka.md`
-- 良い例: `0004-use-kafka-for-cross-service-event-delivery.md`
-
-番号は分類や意味を持たない不変の識別子です。`DOMAIN-001` のように領域を番号へ埋め込まないでください。
-
-### 記載時の注意
-
-- ADRは決定時点の記録であり、`status` はADR自身の状態のみを表します。
-- ADR本文に、他のドキュメントやコードの「現在の状態」への言及（例:「〜は未導入」「〜に反映済み」「〜時点で実装は存在しない」）を記載しないでください。ADRは書き換えない前提の文書のため、こうした記述はすぐに陳腐化します。現在の状態は [/docs/arch/README.md](../README.md) などの生きたドキュメントで管理してください。
-
-### ADRの変更と置き換え
-
-`accepted` になったADRの Context / Decision / Options considered / Consequences を、後から意味が変わる形で書き換えないでください。誤字修正、リンク修正、メタデータ更新など、決定の意味を変えない修正は許容します。
-
-既存の決定を変更する場合は、既存ADRを書き換えるのではなく、新しいADRを作成して置き換えます。
-
-- 旧ADR: `status: superseded`、`supersededBy: ADR-XXXX` を設定
-- 新ADR: `status: accepted`、`supersedes: [ADR-YYYY]` を設定
-- 古いADRは削除しません。
-
-### 議論場所との分離
-
-ADRは議論全文や会議録を保存する場所ではありません。詳細な議論はIssue、Discussion、RFC、PRなどで行い、ADRには判断に必要な主要論点、検討した選択肢、採用・不採用の理由、決定による結果を要約してください。議論元がある場合はfrontmatterの `discussion` または References から参照します。
-
-## 3. statusとareaの定義
+## 3. metadata
 
 ### status
 
-| 値           | 意味                                               |
-| ------------ | -------------------------------------------------- |
-| `proposed`   | 提案中で、まだ決定されていない                     |
-| `accepted`   | 採用され、現在有効                                 |
-| `rejected`   | 検討されたが採用されなかった                       |
+| 値 | 意味 |
+| --- | --- |
+| `proposed` | 提案中で、まだ決定されていない |
+| `accepted` | 採用され、現在有効 |
+| `rejected` | 検討されたが採用されなかった |
 | `deprecated` | 現在は推奨されないが、完全には置き換えられていない |
-| `superseded` | 別のADRによって置き換えられた                      |
+| `superseded` | 別の ADR によって置き換えられた |
 
-表記揺れを避けるため、これ以外の値を追加しないでください。
+これ以外の status を追加しない。
 
 ### area
 
-原則として以下から選択します。複数領域に関係する場合は複数指定できます。
-
-| 値            | 意味                                                            |
-| ------------- | --------------------------------------------------------------- |
-| `domain`      | ドメインモデル、業務ルール、Bounded Context、集約境界           |
-| `application` | アプリケーションの構造、ユースケース層、コンポーネント分割      |
-| `integration` | API、イベント、外部システム・コンポーネント間のインターフェース |
-| `data`        | データモデル、所有権、整合性、永続化、同期方式                  |
-| `platform`    | 実行基盤、フレームワーク、言語、インフラ構成                    |
-| `security`    | 認証、認可、監査、データ保護                                    |
-| `quality`     | 性能、可用性、保守性などの品質特性                              |
-| `delivery`    | ビルド、リリース、配布、開発プロセス上の技術選定                |
-| `operations`  | 運用、監視、バックアップ、障害対応                              |
-
-新しい値を追加する場合は、既存値で表現できないことを確認し、本一覧も更新してください。
+| 値 | 意味 |
+| --- | --- |
+| `domain` | domain model、business rule、bounded context、aggregate boundary |
+| `application` | application structure、use case、component split |
+| `integration` | API、event、external system interface |
+| `data` | data model、ownership、consistency、persistence、sync |
+| `platform` | runtime、framework、language、infrastructure |
+| `security` | authentication、authorization、audit、data protection |
+| `quality` | performance、availability、maintainability 等 |
+| `delivery` | build、release、distribution、development process |
+| `operations` | operation、monitoring、backup、incident response |
 
 ### scope
 
-決定が適用される範囲を記載します。現時点では単一プロダクトのため、原則 `application`（アプリケーション全体）を使用します。将来、特定のコンポーネントに限定される決定が出た場合は、そのコンポーネント名を記載してください。
+decision が適用される範囲を記載する。application 全体なら `application`、特定 component に限定する
+場合は `fullos` 等の名前を使用する。
 
-## 4. 全ADR一覧
+## 4. 全 ADR 一覧
 
-本索引は手動で管理しています（自動生成は未導入）。ADRの追加・状態変更時に必ず更新してください。
+本 index は手動で管理する。ADR の追加・状態変更時に必ず更新する。
 
-| ID  | Title | Status | Area | Scope | Date | Replaces |
-| --- | ----- | ------ | ---- | ----- | ---- | -------- |
+| ID | Title | Status | Area | Scope | Date | Replaces |
+| --- | --- | --- | --- | --- | --- | --- |
 | [ADR-0001](./0001-store-builtin-tag-state-outside-document-meta.md) | 組み込みタグの状態を document_states に分離し、削除は論理削除とする | superseded | domain, data | application | 2026-08-14 | - |
 | [ADR-0002](./0002-use-just-recipes-for-tag-automation-without-owning-dag-engine.md) | タグ自動化の定義に just recipe を用い、Lineage は DAG engine を持たない | accepted | application, integration, quality | application | 2026-08-18 | - |
 | [ADR-0003](./0003-share-capture-and-editing-completion-contract.md) | minos の入力と fullos の編集でメタ情報補完契約を共通化する | accepted | application, quality | application | 2026-08-18 | - |
 | [ADR-0004](./0004-rust-owned-fullos-delta-mutations.md) | FullOS の書き込みを Rust 所有の差分 mutation API に集約する | accepted | application, integration, data, platform | application | 2026-08-25 | ADR-0001 |
+| [ADR-0005](./0005-place-domain-features-infra-behind-composition-roots.md) | アプリごとに domain / features / infra を分け、composition root で接続する | accepted | application, platform, quality | application | 2026-09-02 | - |
+| [ADR-0006](./0006-keep-a-small-shared-kernel-and-app-local-note-models.md) | lineage-core を小さな Shared Kernel とし、Note はアプリ固有モデルで表現する | accepted | domain, application, data | application | 2026-09-02 | - |
+| [ADR-0007](./0007-structure-fullos-ui-with-pages-components-and-tailwind.md) | FullOS UI を pages / components / features に分け、画面 styling を Tailwind に統一する | accepted | application, platform, quality | fullos | 2026-09-02 | - |
+| [ADR-0008](./0008-separate-infrastructure-by-capability-and-trust-boundary.md) | infrastructure を用途と trust boundary で分け、remote capability を build 時に除外可能にする | accepted | platform, security, application | application | 2026-09-02 | - |
+| [ADR-0009](./0009-separate-structured-state-content-and-sync-persistence.md) | 永続化を structured state / content / sync の契約へ分離する | accepted | data, application, integration | application | 2026-09-02 | - |
+| [ADR-0010](./0010-use-git-and-lfs-only-as-versioned-content-backends.md) | Git / Git LFS を workspace 単位の versioned content backend に限定する | accepted | data, integration, operations | application | 2026-09-02 | - |
+| [ADR-0011](./0011-sync-versioned-domain-mutations-not-databases.md) | local / server 同期は DB ではなく versioned domain mutation を交換する | accepted | data, integration, domain | application | 2026-09-02 | - |
+| [ADR-0012](./0012-publish-canonical-assets-with-server-side-fan-out.md) | canonical asset を複製せず publication と server-side fan-out で複数 tenant へ提供する | accepted | domain, data, integration, security | application | 2026-09-02 | - |
 
-## 5. 現在有効なADR（status: accepted）
+## 5. 現在有効な ADR（status: accepted）
 
 - [ADR-0002](./0002-use-just-recipes-for-tag-automation-without-owning-dag-engine.md): タグ自動化の定義に just recipe を用い、Lineage は DAG engine を持たない
 - [ADR-0003](./0003-share-capture-and-editing-completion-contract.md): minos の入力と fullos の編集でメタ情報補完契約を共通化する
 - [ADR-0004](./0004-rust-owned-fullos-delta-mutations.md): FullOS の書き込みを Rust 所有の差分 mutation API に集約する
+- [ADR-0005](./0005-place-domain-features-infra-behind-composition-roots.md): アプリごとに domain / features / infra を分け、composition root で接続する
+- [ADR-0006](./0006-keep-a-small-shared-kernel-and-app-local-note-models.md): lineage-core を小さな Shared Kernel とし、Note はアプリ固有モデルで表現する
+- [ADR-0007](./0007-structure-fullos-ui-with-pages-components-and-tailwind.md): FullOS UI を pages / components / features に分け、画面 styling を Tailwind に統一する
+- [ADR-0008](./0008-separate-infrastructure-by-capability-and-trust-boundary.md): infrastructure を用途と trust boundary で分け、remote capability を build 時に除外可能にする
+- [ADR-0009](./0009-separate-structured-state-content-and-sync-persistence.md): 永続化を structured state / content / sync の契約へ分離する
+- [ADR-0010](./0010-use-git-and-lfs-only-as-versioned-content-backends.md): Git / Git LFS を workspace 単位の versioned content backend に限定する
+- [ADR-0011](./0011-sync-versioned-domain-mutations-not-databases.md): local / server 同期は DB ではなく versioned domain mutation を交換する
+- [ADR-0012](./0012-publish-canonical-assets-with-server-side-fan-out.md): canonical asset を複製せず publication と server-side fan-out で複数 tenant へ提供する
 
-## 6. superseded関係
+## 6. superseded 関係
 
-ADR-0001 は ADR-0004 によって、`document_states` の責務ではなく FullOS WebView の書き込み境界について置き換えられました。
+ADR-0001 は ADR-0004 によって、`document_states` の責務ではなく FullOS WebView の書き込み境界に
+ついて置き換えられた。
 
-| 旧ADR | 置き換え先（supersededBy） |
-| ----- | -------------------------- |
+| 旧 ADR | 置き換え先（supersededBy） |
+| --- | --- |
 | [ADR-0001](./0001-store-builtin-tag-state-outside-document-meta.md) | [ADR-0004](./0004-rust-owned-fullos-delta-mutations.md) |
 
-## 7. ADR作成前の確認事項
+## 7. ADR 作成前の確認事項
 
-新しいADRを作成する前に、必ず既存ADRを確認してください。最低限、以下を検索します。
+最低限、次を検索する。
 
-- [ ] 同じ `scope` のADR
-- [ ] 同じ `area` のADR
-- [ ] 類似するタイトル
-- [ ] 同じ技術、ドメイン用語、インターフェースへの言及
-- [ ] 既存ADRの `related`
-- [ ] 既存ADRの `supersedes`
-- [ ] 既存ADRの `supersededBy`
+- [ ] 同じ `scope`
+- [ ] 同じ `area`
+- [ ] 類似する title
+- [ ] 同じ technology、domain term、interface
+- [ ] 既存 ADR の `related`
+- [ ] 既存 ADR の `supersedes`
+- [ ] 既存 ADR の `supersededBy`
 
-確認の結果:
-
-- 同じ意思決定が既に記録されている場合 → 新しいADRを作成しない。
-- 既存の決定を変更する場合 → 既存ADRを書き換えるのではなく、新しいADRを作成し、旧ADRを `superseded` にする。
+同じ decision が既に存在する場合は新規 ADR を作らない。既存 decision を変更する場合は新しい ADR
+で置き換え、旧 ADR を削除しない。
