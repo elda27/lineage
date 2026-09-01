@@ -25,7 +25,11 @@ use serde_json::Value;
 use tauri::{AppHandle, Manager};
 
 /// 同梱している実行ファイルの名前。
-const AGENTOS_EXE: &str = if cfg!(windows) { "agentos.exe" } else { "agentos" };
+const AGENTOS_EXE: &str = if cfg!(windows) {
+    "agentos.exe"
+} else {
+    "agentos"
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum ExitCodePolicy {
@@ -143,7 +147,11 @@ fn invoke_with_policy(
     let mut command = Command::new(&path);
     command
         .args(args)
-        .stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() })
+        .stdin(if stdin.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
@@ -305,7 +313,12 @@ pub async fn credential_set(
     secret: String,
 ) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
-        invoke(&app, &["credential", "set", "--provider", &provider], Some(&secret)).map(|_| ())
+        invoke(
+            &app,
+            &["credential", "set", "--provider", &provider],
+            Some(&secret),
+        )
+        .map(|_| ())
     })
     .await
     .map_err(|error| format!("処理を実行できません: {error}"))?
@@ -330,7 +343,12 @@ pub async fn credential_has(app: AppHandle, provider: String) -> Result<bool, St
 #[tauri::command]
 pub async fn credential_delete(app: AppHandle, provider: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
-        invoke(&app, &["credential", "delete", "--provider", &provider], None).map(|_| ())
+        invoke(
+            &app,
+            &["credential", "delete", "--provider", &provider],
+            None,
+        )
+        .map(|_| ())
     })
     .await
     .map_err(|error| format!("処理を実行できません: {error}"))?
@@ -392,12 +410,7 @@ mod tests {
         let stdout = r#"{"status":"failed"}"#.to_string();
 
         assert_eq!(
-            resolve_output(
-                Some(2),
-                stdout.clone(),
-                "",
-                ExitCodePolicy::ReportedOutcome,
-            ),
+            resolve_output(Some(2), stdout.clone(), "", ExitCodePolicy::ReportedOutcome,),
             Ok(stdout)
         );
     }

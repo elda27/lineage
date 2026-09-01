@@ -8,6 +8,6 @@
 //! 依存方向は composition root → infra / features → domain。domain は何にも依存しない。
 //! （それぞれ infrastructure / application 層の短縮名）
 
-pub mod features;
 pub mod domain;
+pub mod features;
 pub mod infra;

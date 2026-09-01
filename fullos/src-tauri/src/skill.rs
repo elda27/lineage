@@ -197,7 +197,11 @@ mod tests {
     fn installed_version_reads_the_version_field() {
         let dir = std::env::temp_dir().join("lineage-skill-test-version");
         fs::create_dir_all(&dir).unwrap();
-        fs::write(dir.join(VERSION_FILE), r#"{"name":"lineage","version":"1.2.3"}"#).unwrap();
+        fs::write(
+            dir.join(VERSION_FILE),
+            r#"{"name":"lineage","version":"1.2.3"}"#,
+        )
+        .unwrap();
         assert_eq!(installed_version(&dir), Some("1.2.3".to_string()));
         fs::remove_dir_all(&dir).unwrap();
     }
