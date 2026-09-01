@@ -19,17 +19,23 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.ref }}
 
-      - name: Apply queued source patch
-        if: ${{ hashFiles('.github/assistant.patch.gz.b64') != '' }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Apply and format queued source patch
+        if: ${{ hashFiles('.github/assistant.patch.ready') != '' }}
         shell: bash
         run: |
-          base64 -d .github/assistant.patch.gz.b64 | gzip -d > "$RUNNER_TEMP/assistant.patch"
-          git apply --whitespace=nowarn --ignore-space-change --ignore-whitespace "$RUNNER_TEMP/assistant.patch"
-          git rm .github/assistant.patch.gz.b64
+          cat .github/assistant.patch.gz.b64.part-* > "$RUNNER_TEMP/assistant.patch.gz.b64"
+          base64 -d "$RUNNER_TEMP/assistant.patch.gz.b64" | gzip -d > "$RUNNER_TEMP/assistant.patch"
+          git apply --index --whitespace=nowarn --ignore-space-change --ignore-whitespace "$RUNNER_TEMP/assistant.patch"
+          git rm .github/assistant.patch.gz.b64.part-* .github/assistant.patch.ready
+          cargo fmt --all
           git add -A
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "refactor: move use cases pages and UI primitives to explicit layers"
+          git commit -m "refactor: separate Shared Kernel contracts and infrastructure capabilities"
           git push origin "HEAD:${{ github.event.pull_request.head.ref }}"
 
       - name: Upload source snapshot
@@ -45,17 +51,8 @@ jobs:
             !fullos/dist/**
             !fullos/src-tauri/target/**
 
-      - name: Reject obsolete architecture-layer references
-        shell: bash
-        run: |
-          if git grep -n -E 'lineage_core::app|@core/app' -- '*.rs' '*.ts' '*.tsx'; then
-            echo "obsolete application-layer references remain" >&2
-            exit 1
-          fi
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
+      - name: Check architecture boundaries
+        run: python scripts/check_architecture_boundaries.py
 
       - name: Rust formatting
         run: cargo fmt --all --check
