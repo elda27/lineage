@@ -2,7 +2,7 @@ import type React from "react";
 
 import { ActionMenu } from "@/features/automation/ui/ActionMenu";
 import { relativeTime } from "@/shared/format";
-import { Icon } from "@/shared/ui/kit";
+import { Icon } from "@/components/base";
 import { can, type Memo, type MemoActions } from "../service/memoView";
 import { MetaChips } from "./MetaChips";
 

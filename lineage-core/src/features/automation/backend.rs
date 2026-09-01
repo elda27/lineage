@@ -21,8 +21,8 @@ pub fn reject_browser_backend(rule: &AutomationRule) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::automation::test_support::rule;
     use crate::domain::automation::{Trigger, TriggerKind};
+    use crate::features::automation::test_support::rule;
 
     #[test]
     fn a_browser_rule_is_rejected_where_there_is_no_webview() {

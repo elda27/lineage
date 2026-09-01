@@ -2,7 +2,7 @@ import type { Account } from "@core/domain/account/Account";
 import { AccountButton } from "@/features/workspace/ui/AccountButton";
 import { StorageMeter } from "@/features/workspace/ui/StorageMeter";
 import type { Page } from "@/shared/navigation";
-import { Icon, type IconName } from "@/shared/ui/kit";
+import { Icon, type IconName } from "@/components/base";
 
 export function Sidebar({
   page,

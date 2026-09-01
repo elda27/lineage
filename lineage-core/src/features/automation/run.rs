@@ -301,11 +301,11 @@ impl Automation<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::automation::test_support::{Fixture, StubBackend, rule};
     use crate::domain::automation::{MetaCondition, Trigger};
     use crate::domain::lineage::VerifyResult;
     use crate::domain::meta::MetaAssignment;
     use crate::domain::ports::LineageQuery;
+    use crate::features::automation::test_support::{Fixture, StubBackend, rule};
 
     #[test]
     fn a_successful_run_stores_the_result_and_extends_the_chain() {

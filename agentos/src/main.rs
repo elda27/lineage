@@ -17,11 +17,11 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result, ensure};
 use clap::{Args, Parser, Subcommand};
-use lineage_core::app::automation::{Automation, reject_browser_backend};
-use lineage_core::app::mutation::ApplyMutation;
 use lineage_core::domain::automation::{AutomationRule, AutomationRun, RunStatus};
 use lineage_core::domain::mutation::MutationRequest;
 use lineage_core::domain::ports::{AutomationRuleQuery, LineageQuery};
+use lineage_core::features::automation::{Automation, reject_browser_backend};
+use lineage_core::features::mutation::ApplyMutation;
 use lineage_core::infra::anthropic::AnthropicBackend;
 use lineage_core::infra::clock::{SystemClock, UuidGenerator};
 use lineage_core::infra::credentials::OsCredentialStore;

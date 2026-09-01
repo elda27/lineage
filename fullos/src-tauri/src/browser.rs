@@ -176,7 +176,9 @@ fn collect(window: &WebviewWindow, chunks: usize) -> Result<String, String> {
 }
 
 fn decode(encoded: &str) -> Option<String> {
-    let bytes = base64::engine::general_purpose::STANDARD.decode(encoded).ok()?;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(encoded)
+        .ok()?;
     String::from_utf8(bytes).ok()
 }
 

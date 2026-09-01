@@ -15,7 +15,7 @@ import {
   BROWSER_PROVIDERS,
   providerLabel,
 } from "@core/domain/automation/BrowserProfile";
-import { Icon, primaryButton, secondaryButton, tagChip } from "@/shared/ui/kit";
+import { Icon, primaryButton, secondaryButton, tagChip } from "@/components/base";
 import { MetaConditionInput } from "./MetaConditionInput";
 
 const field = "flex flex-col gap-1.5";

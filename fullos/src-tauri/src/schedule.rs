@@ -91,7 +91,10 @@ pub async fn schedule_unregister() -> Result<(), String> {
 /// `schtasks` を1回叩き、(成功したか, 出力) を返す。
 fn schtasks(args: &[&str]) -> Result<(bool, String), String> {
     let mut command = Command::new("schtasks");
-    command.args(args).stdout(Stdio::piped()).stderr(Stdio::piped());
+    command
+        .args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
 
     #[cfg(windows)]
     {

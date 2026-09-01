@@ -21,10 +21,7 @@ static LOCAL_MUTATION_LOCK: Mutex<()> = Mutex::new(());
 /// 使う。JSON の形を Tauri 側で複製して検証せず、Rust の共有 application service を
 /// 唯一の検証・書き込み経路にする。
 #[tauri::command]
-pub async fn local_mutation_apply(
-    app: AppHandle,
-    request: Value,
-) -> Result<Value, String> {
+pub async fn local_mutation_apply(app: AppHandle, request: Value) -> Result<Value, String> {
     let request = serde_json::to_string(&request)
         .map_err(|error| format!("差分更新リクエストを JSON に変換できません: {error}"))?;
 

@@ -4,11 +4,11 @@
 
 use anyhow::Result;
 
-use crate::app::mutation::ApplyMutation;
 use crate::domain::mutation::{MutationOperation, MutationRequest};
 use crate::domain::ports::MutationStore;
 use crate::domain::settings::Settings;
 use crate::domain::shared::{Clock, IdGenerator};
+use crate::features::mutation::ApplyMutation;
 
 pub struct SaveSettings<'a> {
     store: &'a dyn MutationStore,
