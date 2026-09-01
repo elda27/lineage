@@ -1,1 +1,0 @@
-Apply the staged patch, refresh Cargo.lock files, run formatting, then restore the standard CI workflow before merge.
