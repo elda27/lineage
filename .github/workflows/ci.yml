@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show architecture-layer references
+        shell: bash
+        run: |
+          git grep -n -E 'lineage_core::app|crate::app::|@core/app' -- '*.rs' '*.ts' '*.tsx' || true
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Rust formatting
+        run: cargo fmt --all --check
+
+      - name: Rust workspace tests
+        run: cargo test --workspace --all-targets
+
+      - name: FullOS Tauri tests
+        run: cargo test --manifest-path fullos/src-tauri/Cargo.toml --all-targets
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: fullos/pnpm-lock.yaml
+
+      - name: Install FullOS dependencies
+        run: pnpm --dir fullos install --frozen-lockfile
+
+      - name: FullOS typecheck and build
+        run: pnpm --dir fullos build
