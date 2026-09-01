@@ -1,19 +1,19 @@
-name: Refresh FullOS Tauri lockfile
+name: CI
 
 on:
   pull_request:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: refresh-tauri-lock-${{ github.event.pull_request.number }}
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
-  refresh-lockfile:
+  test:
     runs-on: windows-latest
-    timeout-minutes: 15
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
@@ -21,17 +21,36 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
 
-      - name: Refresh and commit Cargo.lock
-        shell: bash
-        run: |
-          cargo metadata --manifest-path fullos/src-tauri/Cargo.toml --format-version 1 > "$RUNNER_TEMP/fullos-tauri-metadata.json"
-          git add fullos/src-tauri/Cargo.lock
-          if git diff --cached --quiet; then
-            echo "FullOS Tauri Cargo.lock was already current" >&2
-            exit 1
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "build(fullos): update Tauri lockfile"
-          git push origin "HEAD:${{ github.event.pull_request.head.ref }}"
+      - name: Check architecture boundaries
+        run: python scripts/check_architecture_boundaries.py
+
+      - name: Rust workspace formatting
+        run: cargo fmt --all --check
+
+      - name: FullOS Tauri formatting
+        run: cargo fmt --manifest-path fullos/src-tauri/Cargo.toml --all --check
+
+      - name: Rust workspace tests
+        run: cargo test --workspace --all-targets --locked
+
+      - name: FullOS Tauri tests
+        run: cargo test --manifest-path fullos/src-tauri/Cargo.toml --all-targets --locked
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: fullos/pnpm-lock.yaml
+
+      - name: Install FullOS dependencies
+        run: pnpm --dir fullos install --frozen-lockfile
+
+      - name: FullOS typecheck and build
+        run: pnpm --dir fullos build
