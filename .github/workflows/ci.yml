@@ -4,10 +4,10 @@ on:
   pull_request:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
@@ -17,51 +17,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.ref }}
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.sha }}
 
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
 
-      - name: Apply and format queued source patch
-        if: ${{ hashFiles('.github/assistant.patch.ready') != '' }}
-        shell: bash
-        run: |
-          cat .github/assistant.patch.gz.b64.part-* > "$RUNNER_TEMP/assistant.patch.gz.b64"
-          base64 -d "$RUNNER_TEMP/assistant.patch.gz.b64" | gzip -d > "$RUNNER_TEMP/assistant.patch"
-          git apply --index --whitespace=nowarn --ignore-space-change --ignore-whitespace "$RUNNER_TEMP/assistant.patch"
-          git rm .github/assistant.patch.gz.b64.part-* .github/assistant.patch.ready
-          cargo fmt --all
-          git add -A
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "refactor: separate Shared Kernel contracts and infrastructure capabilities"
-          git push origin "HEAD:${{ github.event.pull_request.head.ref }}"
-
-      - name: Upload source snapshot
-        uses: actions/upload-artifact@v4
-        with:
-          name: source-snapshot
-          include-hidden-files: true
-          path: |
-            .
-            !.git/**
-            !target/**
-            !fullos/node_modules/**
-            !fullos/dist/**
-            !fullos/src-tauri/target/**
-
       - name: Check architecture boundaries
         run: python scripts/check_architecture_boundaries.py
 
-      - name: Rust formatting
+      - name: Rust workspace formatting
         run: cargo fmt --all --check
 
+      - name: FullOS Tauri formatting
+        run: cargo fmt --manifest-path fullos/src-tauri/Cargo.toml --all --check
+
       - name: Rust workspace tests
-        run: cargo test --workspace --all-targets
+        run: cargo test --workspace --all-targets --locked
 
       - name: FullOS Tauri tests
-        run: cargo test --manifest-path fullos/src-tauri/Cargo.toml --all-targets
+        run: cargo test --manifest-path fullos/src-tauri/Cargo.toml --all-targets --locked
 
       - uses: pnpm/action-setup@v4
         with:
