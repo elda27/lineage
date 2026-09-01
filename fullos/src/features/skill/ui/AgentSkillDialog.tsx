@@ -2,7 +2,7 @@ import { useState } from "react";
 
 import type { AgentSkillStatus } from "@core/domain/skill/AgentSkill";
 import { useAgentSkills } from "@/features/skill/service/useAgentSkills";
-import { Icon, primaryButton, secondaryButton } from "@/shared/ui/kit";
+import { Icon, primaryButton, secondaryButton } from "@/components/base";
 
 /**
  * 起動時に出る「エージェントへ skill を追加しますか」の確認。

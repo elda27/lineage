@@ -7,7 +7,7 @@ import {
   type AutomationRun,
 } from "@core/domain/automation/AutomationRule";
 import { appClient } from "@/shared/api/appClient";
-import { Icon, tagChip } from "@/shared/ui/kit";
+import { Icon, tagChip } from "@/components/base";
 
 type Phase =
   | { kind: "idle" }

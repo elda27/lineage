@@ -21,7 +21,7 @@ pub fn reject_browser_backend(rule: &AutomationRule) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::automation::test_support::rule;
+    use crate::features::automation::test_support::rule;
     use crate::domain::automation::{Trigger, TriggerKind};
 
     #[test]

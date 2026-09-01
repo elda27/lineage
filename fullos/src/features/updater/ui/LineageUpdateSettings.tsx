@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 
 import { useUpdater } from "@/features/updater/service/useUpdater";
-import { SettingRow } from "@/shared/ui/kit";
+import { SettingRow } from "@/components/base";
 
 const action =
   "shrink-0 cursor-pointer rounded-[7px] border border-line bg-white px-3 py-2 text-[10px] font-medium text-ink shadow-[0_1px_2px_#0000000a] hover:bg-[#f7f7f3] disabled:cursor-wait disabled:opacity-60";

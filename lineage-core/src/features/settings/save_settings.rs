@@ -4,7 +4,7 @@
 
 use anyhow::Result;
 
-use crate::app::mutation::ApplyMutation;
+use crate::features::mutation::ApplyMutation;
 use crate::domain::mutation::{MutationOperation, MutationRequest};
 use crate::domain::ports::MutationStore;
 use crate::domain::settings::Settings;

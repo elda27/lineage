@@ -27,7 +27,7 @@ impl<'a> VerifyLineage<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::capture::{CaptureMemo, CaptureMemoInput};
+    use crate::features::capture::{CaptureMemo, CaptureMemoInput};
     use crate::domain::lineage::BrokenReason;
     use crate::infra::clock::{FixedClock, SequentialIds};
     use crate::infra::crypto::Sha256Hasher;

@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { AgentSkillStatus } from "@core/domain/skill/AgentSkill";
 import { LINEAGE_SKILL_VERSION } from "@core/domain/skill/LineageSkill";
 import { appClient } from "@/shared/api/appClient";
-import { SettingRow, smallPrimaryButton, toggleKnob, toggleTrack } from "@/shared/ui/kit";
+import { SettingRow, smallPrimaryButton, toggleKnob, toggleTrack } from "@/components/base";
 
 /**
  * 設定画面の skill セクション。

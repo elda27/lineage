@@ -1,4 +1,4 @@
-import { cardSurface, Icon, type IconName } from "@/shared/ui/kit";
+import { cardSurface, Icon, type IconName } from "@/components/base";
 import type { LoadState, Memo, MemoActions } from "../service/memoView";
 import { MemoCard } from "./MemoCard";
 

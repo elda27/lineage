@@ -1,5 +1,5 @@
 import { accountInitial, type Account } from "@core/domain/account/Account";
-import { Icon } from "@/shared/ui/kit";
+import { Icon } from "@/components/base";
 
 /** 認証のある接続のときだけ出るアカウント欄。ローカル接続では何も描画しない。 */
 export function AccountButton({ account }: { account: Account | null }) {

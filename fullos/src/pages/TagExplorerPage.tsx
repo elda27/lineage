@@ -1,7 +1,8 @@
+/** Route-level screen. Business behavior remains in feature services/components. */
 import { useEffect, useMemo, useState } from "react";
 import type { TagDefinition, TagPatch } from "@core/domain/tag/TagDefinition";
 import { appClient } from "@/shared/api/appClient";
-import { primaryButton, secondaryButton } from "@/shared/ui/kit";
+import { primaryButton, secondaryButton } from "@/components/base";
 
 export function TagExplorerPage() {
   const [tags, setTags] = useState<TagDefinition[]>([]),

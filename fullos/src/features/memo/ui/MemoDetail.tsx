@@ -3,7 +3,7 @@ import { useState, type FormEvent } from "react";
 import { bodyPreview, metaText, type MetaAssignment } from "@core/domain/memo/Memo";
 import { ActionMenu } from "@/features/automation/ui/ActionMenu";
 import { absoluteDateTime } from "@/shared/format";
-import { Icon, primaryButton, quietButton, secondaryButton } from "@/shared/ui/kit";
+import { Icon, primaryButton, quietButton, secondaryButton } from "@/components/base";
 import { can, type Memo, type MemoActions } from "../service/memoView";
 import { MetaChips } from "./MetaChips";
 import { useMetaCompletion } from "./MetaCompletion";

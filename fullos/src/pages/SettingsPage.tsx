@@ -1,3 +1,4 @@
+/** Route-level screen. Business behavior remains in feature services/components. */
 import { useState } from "react";
 
 import { AutomationSettings } from "@/features/automation/ui/AutomationSettings";
@@ -12,7 +13,7 @@ import {
   standardPage,
   tagChip,
   Toggle,
-} from "@/shared/ui/kit";
+} from "@/components/base";
 
 export function SettingsPage() {
   const [launch, setLaunch] = useState(true),

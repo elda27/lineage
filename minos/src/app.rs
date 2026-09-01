@@ -10,10 +10,10 @@ use std::thread;
 
 use anyhow::{Context, Result, bail};
 
-use lineage_core::app::capture::{CaptureMemo, CaptureMemoInput, CaptureMemoOutput};
-use lineage_core::app::lineage::VerifyLineage;
-use lineage_core::app::meta::CompleteMetaTag;
-use lineage_core::app::settings::{LoadSettings, SaveSettings};
+use lineage_core::features::capture::{CaptureMemo, CaptureMemoInput, CaptureMemoOutput};
+use lineage_core::features::lineage::VerifyLineage;
+use lineage_core::features::meta::CompleteMetaTag;
+use lineage_core::features::settings::{LoadSettings, SaveSettings};
 use lineage_core::domain::automation::MemoSnapshot;
 use lineage_core::domain::capture::{CaptureContext, ImageAttachment};
 use lineage_core::domain::lineage::VerifyResult;

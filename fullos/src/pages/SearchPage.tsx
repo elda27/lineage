@@ -1,11 +1,12 @@
+/** Route-level screen. Business behavior remains in feature services/components. */
 import { useMemo, useState } from "react";
 
 import { matchesMemoQuery, parseMemoQuery } from "@core/domain/memo/MemoQuery";
-import { eyebrow, serifTitle, standardPage } from "@/shared/ui/kit";
-import type { LoadState, Memo, MemoActions } from "../service/memoView";
-import { MemoList } from "./MemoList";
-import { MetaChips } from "./MetaChips";
-import { SearchBox } from "./SearchBox";
+import { eyebrow, serifTitle, standardPage } from "@/components/base";
+import type { LoadState, Memo, MemoActions } from "@/features/memo/service/memoView";
+import { MemoList } from "@/features/memo/ui/MemoList";
+import { MetaChips } from "@/features/memo/ui/MetaChips";
+import { SearchBox } from "@/features/memo/ui/SearchBox";
 
 const FILTERS = ["すべて", "メモ", "タスク", "アーカイブ"] as const;
 const TASK_FILTERS = [
