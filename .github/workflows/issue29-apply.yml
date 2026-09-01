@@ -1,0 +1,46 @@
+name: Apply issue 29 implementation
+
+on:
+  pull_request:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: issue29-apply-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  apply:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Apply implementation
+        shell: bash
+        run: |
+          if [ ! -f .github/assistant.issue29.patch.gz.b64 ]; then
+            echo "Issue 29 implementation is already applied."
+            exit 0
+          fi
+          tr -d '\r\n' < .github/assistant.issue29.patch.gz.b64 > "$RUNNER_TEMP/issue29.patch.gz.b64"
+          base64 -d "$RUNNER_TEMP/issue29.patch.gz.b64" | gzip -d > "$RUNNER_TEMP/issue29.patch"
+          git apply --index --whitespace=nowarn --ignore-space-change --ignore-whitespace "$RUNNER_TEMP/issue29.patch"
+          cargo fmt --all
+          cargo fmt --manifest-path fullos/src-tauri/Cargo.toml --all
+          cargo metadata --format-version 1 > "$RUNNER_TEMP/root-metadata.json"
+          cargo metadata --manifest-path fullos/src-tauri/Cargo.toml --format-version 1 > "$RUNNER_TEMP/tauri-metadata.json"
+          git rm .github/assistant.issue29.patch.gz.b64
+          git add -A
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "refactor: use Lineage product binary names"
+          git push origin "HEAD:${{ github.event.pull_request.head.ref }}"
