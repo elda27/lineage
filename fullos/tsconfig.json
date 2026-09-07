@@ -9,7 +9,7 @@
     /* Bundler mode */
     "moduleResolution": "bundler",
 
-    /* 層をまたぐ import は相対パスだと features/<機能>/ui から ../../../ が続いて読めなくなる。
+    /* 層をまたぐ import は相対パスだと features/<機能>/components から ../../../ が続いて読めなくなる。
        vite.config.ts の resolve.alias と同じ対応を持つ。 */
     "baseUrl": ".",
     "paths": {

@@ -9,7 +9,7 @@ import type { BrowserProfile } from "@core/domain/automation/BrowserProfile";
 import type { MetaSuggestion } from "@core/domain/meta/MetaTag";
 import type { Memo } from "@core/domain/memo/Memo";
 import type { AgentSkillPreference } from "@core/domain/skill/AgentSkill";
-import type { AgentSkillSync } from "@core/app/skill/SyncAgentSkills";
+import type { AgentSkillSync } from "@core/features/skill/SyncAgentSkills";
 import type { StorageUsage } from "@core/domain/storage/StorageUsage";
 import type { TagDefinition, TagPatch } from "@core/domain/tag/TagDefinition";
 

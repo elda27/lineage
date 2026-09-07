@@ -1,13 +1,29 @@
 # Lineage Architecture
 
-この文書は現在有効な architecture の概要を示す living document である。判断理由と代替案は
+この文書は採用したarchitectureの設計方針と実装状況を区別して示すliving documentである。判断理由と代替案は
 [`adr/README.md`](./adr/README.md) と各 ADR を参照する。2026-08-20 の Design Doc は検討時点の
 snapshot であり、長期的な規範は accepted ADR を正本とする。
+
+## 実装状況（2026-09-07）
+
+PR #43は取り消し、Issue #47ではコード配置の変更のみを実施する。
+以下の節はADRの目標設計であり、全項目が実装済みであることを意味しない。
+
+| 範囲 | この段階の状態 |
+| --- | --- |
+| Rust / FullOS coreのuse case層 | `app`から`features`へ配置と参照を変更 |
+| FullOS UI | `pages`、`components/base`、`components/containers`、`features/*/components`へ整理 |
+| FullOS domain / infra | 引き続き`fullos/core/domain`と`fullos/core/infra`に配置 |
+| Shared Kernel縮小・app-local Noteモデル | 後続作業。既存モデルの意味を変更しない |
+| Minos / AgentOSの内部再編・依存境界の強制 | 後続作業 |
+| theme・compile-time capability・content/sync・Git/LFS・publication | この配置変更に含めない |
+
+親Issue #22は継続する。実行ファイル名は現行の`minos`・`fullos`・`agentos`を使用する。
 
 ## Components
 
 ```text
-Minos        FullOS        Lineage Runner
+Minos        FullOS        AgentOS
   \            |               /
    \           |              /
         lineage-core
@@ -16,7 +32,7 @@ Minos        FullOS        Lineage Runner
 
 - **Minos**: keyboard shortcut から高速に Note を入力し、入力時の local context を付与する desktop app。
 - **FullOS**: Note の検索、編集、整理、設定、automation 操作を提供する Tauri/React app。
-- **Lineage Runner**: rule-based / agentic automation を実行する headless runtime。
+- **AgentOS**: rule-based / agentic automation を実行する headless runtime。
 - **lineage-core**: canonical record、workspace identity、mutation、Lineage/provenance integrity など、
   複数 app で同じ意味と不変条件を共有する必要がある contract を持つ Shared Kernel。
 
