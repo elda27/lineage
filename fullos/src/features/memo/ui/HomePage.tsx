@@ -1,4 +1,3 @@
-/** Route-level screen. Business behavior remains in feature services/components. */
 import { longDate } from "@/shared/format";
 import type { Page } from "@/shared/navigation";
 import {
@@ -8,10 +7,10 @@ import {
   quietButton,
   smallPrimaryButton,
   subheading,
-} from "@/components/base";
-import { activeMemos, type LoadState, type Memo, type MemoActions } from "@/features/memo/service/memoView";
-import { MemoList } from "@/features/memo/ui/MemoList";
-import { SearchBox } from "@/features/memo/ui/SearchBox";
+} from "@/shared/ui/kit";
+import { activeMemos, type LoadState, type Memo, type MemoActions } from "../service/memoView";
+import { MemoList } from "./MemoList";
+import { SearchBox } from "./SearchBox";
 
 export function HomePage({
   memos,
