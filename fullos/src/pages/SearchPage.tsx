@@ -4,8 +4,8 @@ import { matchesMemoQuery, parseMemoQuery } from "@core/domain/memo/MemoQuery";
 import { eyebrow, serifTitle, standardPage } from "@/components/base";
 import type { LoadState, Memo, MemoActions } from "../features/memo/service/memoView";
 import { MemoList } from "../features/memo/components/MemoList";
-import { MetaChips } from "../features/memo/components/MetaChips";
-import { SearchBox } from "../features/memo/components/SearchBox";
+import { MetaChips } from "@/components/containers/MetaChips";
+import { SearchBox } from "@/components/containers/SearchBox";
 
 const FILTERS = ["すべて", "メモ", "タスク", "アーカイブ"] as const;
 const TASK_FILTERS = [

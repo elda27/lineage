@@ -15,7 +15,7 @@ import {
   type MemoActions,
 } from "../features/memo/service/memoView";
 import { MemoList } from "../features/memo/components/MemoList";
-import { SearchBox } from "../features/memo/components/SearchBox";
+import { SearchBox } from "@/components/containers/SearchBox";
 
 export function HomePage({
   memos,

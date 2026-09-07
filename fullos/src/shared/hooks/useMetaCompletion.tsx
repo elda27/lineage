@@ -1,8 +1,8 @@
 import { useId, useRef, useState } from "react";
 
 import { findActiveTagToken, type MetaSuggestion, type TagToken } from "@core/domain/meta/MetaTag";
-import { Icon } from "@/components/base";
-import { useMetaSuggestions } from "../service/useMetaSuggestions";
+import { Icon } from "@/components/base/index";
+import { useMetaSuggestions } from "@/shared/hooks/useMetaSuggestions";
 
 type Editor = HTMLInputElement | HTMLTextAreaElement;
 

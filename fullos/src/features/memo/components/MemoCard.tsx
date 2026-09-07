@@ -4,7 +4,7 @@ import { ActionMenu } from "@/features/automation/components/ActionMenu";
 import { relativeTime } from "@/shared/format";
 import { Icon } from "@/components/base";
 import { can, type Memo, type MemoActions } from "../service/memoView";
-import { MetaChips } from "./MetaChips";
+import { MetaChips } from "@/components/containers/MetaChips";
 
 /**
  * 一覧の1件。

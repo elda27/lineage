@@ -5,8 +5,8 @@ import { ActionMenu } from "@/features/automation/components/ActionMenu";
 import { absoluteDateTime } from "@/shared/format";
 import { Icon, primaryButton, quietButton, secondaryButton } from "@/components/base";
 import { can, type Memo, type MemoActions } from "../service/memoView";
-import { MetaChips } from "./MetaChips";
-import { useMetaCompletion } from "./MetaCompletion";
+import { MetaChips } from "@/components/containers/MetaChips";
+import { useMetaCompletion } from "@/shared/hooks/useMetaCompletion";
 import { MemoImages } from "./MemoImages";
 
 export function MemoDetail({

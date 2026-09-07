@@ -55,6 +55,10 @@ use case layer は `features` と呼ぶ。feature 内は原則 flat に保ち、
 
 詳細: [ADR-0005](./adr/0005-place-domain-features-infra-behind-composition-roots.md)
 
+共通UIとfeature固有UIの配置基準は [components/README.md](../../fullos/src/components/README.md) を参照する。
+タグ表示・検索バーは `components/containers`、タグ補完hookは `shared/hooks` に配置し、
+共通側からfeature実装へ依存させない。
+
 ## Domain language and Shared Kernel
 
 利用者向け概念は `Note` とする。Minos と FullOS は用途の異なる app-local Note model を持ち、
