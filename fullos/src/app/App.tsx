@@ -1,24 +1,24 @@
 /**
  * 画面のシェル（composition root）。
  *
- * route-level screen は pages/、feature-local UI は features/<機能>/ui が持つ。ここがするのは
+ * 画面そのものは features/<機能>/ui が持つ。ここがするのは
  * 「どの画面を出すか」と「画面をまたいで持つ状態（記録の一覧と選択中の記録）」の管理だけ。
  */
 
 import { useState } from "react";
 
-import { AutomationPage } from "@/pages/AutomationPage";
+import { AutomationPage } from "@/features/automation/ui/AutomationPage";
 import { useEnabledRuleCount } from "@/features/automation/service/useEnabledRuleCount";
-import { HomePage } from "@/pages/HomePage";
+import { HomePage } from "@/features/memo/ui/HomePage";
 import { MemoDetail } from "@/features/memo/ui/MemoDetail";
-import { SearchPage } from "@/pages/SearchPage";
+import { SearchPage } from "@/features/memo/ui/SearchPage";
 import type { Memo } from "@/features/memo/service/memoView";
 import { useArchiveOnClose } from "@/features/memo/service/useArchiveOnClose";
 import { useMemoActions } from "@/features/memo/service/useMemoActions";
 import { useRecordedMemos } from "@/features/memo/service/useRecordedMemos";
-import { SettingsPage } from "@/pages/SettingsPage";
+import { SettingsPage } from "@/features/settings/ui/SettingsPage";
 import { AgentSkillDialog } from "@/features/skill/ui/AgentSkillDialog";
-import { TagExplorerPage } from "@/pages/TagExplorerPage";
+import { TagExplorerPage } from "@/features/tag-explorer/ui/TagExplorerPage";
 import { useAccount } from "@/features/workspace/service/useAccount";
 import type { Page } from "@/shared/navigation";
 import { Sidebar } from "./Sidebar";

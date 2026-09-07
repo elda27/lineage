@@ -1,4 +1,3 @@
-/** Route-level screen. Business behavior remains in feature services/components. */
 import { useState } from "react";
 
 import {
@@ -22,8 +21,8 @@ import {
   tagChip,
   toggleKnob,
   toggleTrack,
-} from "@/components/base";
-import { RuleEditor } from "@/features/automation/ui/RuleEditor";
+} from "@/shared/ui/kit";
+import { RuleEditor } from "./RuleEditor";
 import { useAutomationRules, useAutomationRuns } from "@/features/automation/service/useAutomation";
 
 type Tab = "rules" | "runs";

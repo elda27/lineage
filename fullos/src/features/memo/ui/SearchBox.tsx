@@ -1,4 +1,4 @@
-import { Icon } from "@/components/base";
+import { Icon } from "@/shared/ui/kit";
 import { useMetaCompletion } from "./MetaCompletion";
 
 /** 検索と記録編集で共用する、minos と同じメタ情報補完付き検索バー。 */

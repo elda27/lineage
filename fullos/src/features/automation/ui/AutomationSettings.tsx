@@ -15,7 +15,7 @@ import {
   smallPrimaryButton,
   toggleKnob,
   toggleTrack,
-} from "@/components/base";
+} from "@/shared/ui/kit";
 import { useCredentialStatus } from "@/features/automation/service/useAutomation";
 
 /**
