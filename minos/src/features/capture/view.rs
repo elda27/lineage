@@ -24,13 +24,14 @@ use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::input::{Backspace, Escape, Input, InputEvent, InputState};
 use gpui_component::{ActiveTheme, Sizable, StyledExt, h_flex, v_flex};
 
-use lineage_core::domain::automation::MemoSnapshot;
-use lineage_core::domain::capture::CaptureContext;
+use crate::domain::note::CaptureContext;
+use lineage_core::domain::document::DocumentSnapshot;
 use lineage_core::domain::meta::{MetaAssignment, MetaSource, split_completed_tags};
 
-use crate::app::{Services, is_supported_image};
+use crate::app::Services;
 use crate::features::capture::meta_completion::{MetaCompletionProvider, selected_memo_id};
 use crate::features::window::AppWindow;
+use crate::infra::attachments::is_supported_image;
 use crate::infra::system::foreground;
 use crate::infra::system::{ForegroundApp, SelectionCapture, launcher};
 
@@ -386,7 +387,12 @@ impl CaptureView {
         cx.notify();
     }
 
-    fn restore_memo(&mut self, memo: MemoSnapshot, window: &mut Window, cx: &mut Context<Self>) {
+    fn restore_memo(
+        &mut self,
+        memo: DocumentSnapshot,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.editing_document_id = Some(memo.id);
         self.tags = memo.metas;
         self.input.update(cx, |input, cx| {

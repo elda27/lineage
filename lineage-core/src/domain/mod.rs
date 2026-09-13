@@ -1,14 +1,9 @@
-//! ドメイン層。
-//!
-//! この層は他のどの層にも依存しない（infrastructure / presentation を参照しない）。
-//! DB・Win32・gpui の API はここには一切現れない。
-
+//! 同じ意味・識別子・不変条件をアプリ間で共有する契約。
 pub mod automation;
-pub mod capture;
+pub mod document;
 pub mod lineage;
 pub mod meta;
 pub mod mutation;
 pub mod ports;
-pub mod settings;
 pub mod shared;
 pub mod tag;

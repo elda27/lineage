@@ -1,13 +1,38 @@
-//! minos が記録する「入力1件」＝ Document Asset。
-//!
-//! 利用者にとってはメモだが、内部的には Document として保存する
-//! （docs/concept/PARTIAL_SPEC.md「3.3 文書ではなく記録として扱う」）。
+//! Minos の入力モデル。タイトル・観測文脈をここで解釈し、共有記録へ明示的に変換する。
 
-use crate::domain::meta::DocumentMetadata;
+use anyhow::{Result, ensure};
+use lineage_core::domain::document::{DOCUMENT_TYPE_IMAGE, DOCUMENT_TYPE_MEMO, DocumentAsset};
+use lineage_core::domain::meta::DocumentMetadata;
 
-/// document_type の値。
-pub const DOCUMENT_TYPE_MEMO: &str = "memo";
-pub const DOCUMENT_TYPE_IMAGE: &str = "image";
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Note {
+    pub title: String,
+    pub body: String,
+}
+
+impl Note {
+    pub fn new(body: String) -> Result<Self> {
+        let body = body.trim_end().to_string();
+        ensure!(!body.trim().is_empty(), "本文が空です");
+        Ok(Self {
+            title: derive_title(&body),
+            body,
+        })
+    }
+
+    pub fn into_document(self, id: String, workspace_id: String, now: String) -> DocumentAsset {
+        DocumentAsset {
+            id,
+            workspace_id,
+            title: self.title,
+            body_text: self.body,
+            blob_uri: None,
+            document_type: DOCUMENT_TYPE_MEMO.into(),
+            created_at: now.clone(),
+            updated_at: now,
+        }
+    }
+}
 
 /// minos でメモに添付する画像。`blob_uri` はローカルに保存した画像のパス。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -16,56 +41,20 @@ pub struct ImageAttachment {
     pub blob_uri: String,
 }
 
-/// 記録本体。
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DocumentAsset {
-    pub id: String,
-    pub workspace_id: String,
-    pub title: String,
-    pub body_text: String,
-    pub blob_uri: Option<String>,
-    pub document_type: String,
-    pub created_at: String,
-    pub updated_at: String,
-}
-
-impl DocumentAsset {
-    /// 本文からタイトルを導出して記録を作る。
-    ///
-    /// 利用者にタイトルを入力させないため、1行目を要約として使う。
-    pub fn memo(
+impl ImageAttachment {
+    pub fn into_document(
+        self,
         id: impl Into<String>,
         workspace_id: impl Into<String>,
-        body_text: impl Into<String>,
         now: impl Into<String>,
-    ) -> Self {
-        let body_text = body_text.into();
+    ) -> DocumentAsset {
         let now = now.into();
-        Self {
+        DocumentAsset {
             id: id.into(),
             workspace_id: workspace_id.into(),
-            title: derive_title(&body_text),
-            body_text,
-            blob_uri: None,
-            document_type: DOCUMENT_TYPE_MEMO.to_string(),
-            created_at: now.clone(),
-            updated_at: now,
-        }
-    }
-
-    pub fn image(
-        id: impl Into<String>,
-        workspace_id: impl Into<String>,
-        attachment: ImageAttachment,
-        now: impl Into<String>,
-    ) -> Self {
-        let now = now.into();
-        Self {
-            id: id.into(),
-            workspace_id: workspace_id.into(),
-            title: attachment.name,
+            title: self.name,
             body_text: String::new(),
-            blob_uri: Some(attachment.blob_uri),
+            blob_uri: Some(self.blob_uri),
             document_type: DOCUMENT_TYPE_IMAGE.to_string(),
             created_at: now.clone(),
             updated_at: now,
@@ -125,36 +114,31 @@ mod tests {
     use super::*;
 
     #[test]
-    fn title_comes_from_the_first_non_empty_line() {
-        let doc = DocumentAsset::memo(
-            "d1",
-            "ws",
-            "\n\nSOXL 損切り\n理由は…",
-            "2026-08-08T00:00:00Z",
-        );
+    fn note_maps_the_first_nonblank_line_to_the_canonical_title() {
+        let note = Note::new("\n\nSOXL 損切り\n理由は…\n".into()).unwrap();
+        let doc = note.into_document("d1".into(), "ws".into(), "2026-08-08T00:00:00Z".into());
         assert_eq!(doc.title, "SOXL 損切り");
+        assert_eq!(doc.body_text, "\n\nSOXL 損切り\n理由は…");
         assert_eq!(doc.document_type, DOCUMENT_TYPE_MEMO);
     }
 
     #[test]
-    fn long_titles_are_elided() {
-        let body = "あ".repeat(100);
-        let doc = DocumentAsset::memo("d1", "ws", body, "2026-08-08T00:00:00Z");
-        assert_eq!(doc.title.chars().count(), TITLE_MAX_CHARS + 1);
-        assert!(doc.title.ends_with('…'));
+    fn long_titles_are_elided_by_character() {
+        let note = Note::new("あ".repeat(100)).unwrap();
+        assert_eq!(note.title.chars().count(), TITLE_MAX_CHARS + 1);
+        assert!(note.title.ends_with('…'));
     }
 
     #[test]
-    fn empty_body_falls_back_to_a_placeholder_title() {
-        let doc = DocumentAsset::memo("d1", "ws", "   ", "2026-08-08T00:00:00Z");
-        assert_eq!(doc.title, "memo");
+    fn empty_input_is_rejected() {
+        assert!(Note::new(" \n ".into()).is_err());
     }
 
     #[test]
-    fn context_becomes_auto_metadata() {
+    fn context_becomes_observed_metadata() {
         let context = CaptureContext {
             process_name: "chrome.exe".into(),
-            window_title: "SOXL - Google Finance".into(),
+            window_title: "SOXL".into(),
         };
         let metas = context.metadata();
         assert_eq!(metas[0].key, "application");

@@ -1,14 +1,12 @@
 //! Repository インターフェース。実装は infrastructure 側に置く。
 //!
-//! 依存方向は features(presentation)/infra → app → domain。
+//! 依存方向は composition root → features / infra → domain。
 //! ここには SQL も Win32 も現れない。
 
 use anyhow::Result;
 
-use crate::domain::automation::{
-    AutomationRule, AutomationRun, InferenceOutcome, InferenceRequest, MemoSnapshot,
-};
-use crate::domain::capture::DocumentAsset;
+use crate::domain::automation::{AutomationRule, AutomationRun};
+use crate::domain::document::{DocumentAsset, DocumentSnapshot};
 use crate::domain::lineage::LineageRecord;
 use crate::domain::meta::{DocumentMetadata, MetaAssignment, MetaTag};
 use crate::domain::mutation::{MutationRequest, MutationResult};
@@ -40,12 +38,12 @@ pub trait LedgerTx {
 ///
 /// document の insert と link の append は必ず同一トランザクションで確定させる必要がある
 /// （hash-chain を切らないため）。そのため、書き込み系はこのポート越しにまとめて行う。
-pub trait CaptureStore {
-    fn transact(&self, work: &mut dyn FnMut(&mut dyn CaptureTx) -> Result<()>) -> Result<()>;
+pub trait DocumentStore {
+    fn transact(&self, work: &mut dyn FnMut(&mut dyn DocumentTx) -> Result<()>) -> Result<()>;
 }
 
 /// 記録の取り込みでトランザクション内から使える操作。
-pub trait CaptureTx: LedgerTx {
+pub trait DocumentTx: LedgerTx {
     /// 未作成なら workspace を作る。
     fn ensure_workspace(&mut self, id: &str, name: &str, now: &str) -> Result<()>;
     fn clear_document_metas(&mut self, document_id: &str) -> Result<()>;
@@ -119,31 +117,16 @@ pub trait AutomationRunStore {
         workspace_id: &str,
         rule_id: &str,
         scan_limit: usize,
-    ) -> Result<Vec<MemoSnapshot>>;
+    ) -> Result<Vec<DocumentSnapshot>>;
 
     /// このルールが最後に実行を開始した時刻。スケジュールの発火判定に使う。
     fn last_started_at(&self, rule_id: &str) -> Result<Option<String>>;
 }
 
-/// 記録1件の読み出し（自動化の入力になる）。
-pub trait MemoQuery {
-    fn get(&self, workspace_id: &str, document_id: &str) -> Result<Option<MemoSnapshot>>;
-    fn recent(&self, workspace_id: &str, limit: usize) -> Result<Vec<MemoSnapshot>>;
-}
-
-/// API キーなどの秘密の取り出し。
-///
-/// 保存先は OS の資格情報ストア。`SQLite` には置かない（DB ファイルを読めた者が
-/// そのまま鍵を持ち出せてしまうため）。
-pub trait CredentialStore {
-    /// 登録されていなければ `None`。呼び出し側が「未登録」を利用者に案内できるよう、
-    /// 見つからないことをエラーにはしない。
-    fn secret(&self, provider: &str) -> Result<Option<String>>;
-}
-
-/// 生成AIの呼び出し。
-pub trait InferenceBackend {
-    fn complete(&self, request: &InferenceRequest) -> Result<InferenceOutcome>;
+/// 本文とタグの参照境界。入力の再編集と自動化のどちらでも使う。
+pub trait DocumentQuery {
+    fn get(&self, workspace_id: &str, document_id: &str) -> Result<Option<DocumentSnapshot>>;
+    fn recent(&self, workspace_id: &str, limit: usize) -> Result<Vec<DocumentSnapshot>>;
 }
 
 /// 補完候補の母集合を読み出す。

@@ -134,8 +134,14 @@ name = "agentos"
 version = "0.0.8"
 dependencies = [
  "anyhow",
+ "chrono",
  "clap",
+ "cron",
+ "dirs",
+ "keyring",
  "lineage-core",
+ "reqwest",
+ "rusqlite",
  "serde",
  "serde_json",
 ]
@@ -4096,10 +4102,6 @@ version = "0.0.8"
 dependencies = [
  "anyhow",
  "chrono",
- "cron",
- "dirs",
- "keyring",
- "reqwest",
  "rusqlite",
  "rustfmt",
  "serde",

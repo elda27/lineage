@@ -66,10 +66,10 @@ impl CredentialStore for OsCredentialStore {
 }
 
 /// テスト用の、メモリ上に置くだけの資格情報ストア。
-#[cfg(any(test, feature = "testing"))]
+#[cfg(test)]
 pub struct StubCredentialStore(pub Option<String>);
 
-#[cfg(any(test, feature = "testing"))]
+#[cfg(test)]
 impl CredentialStore for StubCredentialStore {
     fn secret(&self, _provider: &str) -> Result<Option<String>> {
         Ok(self.0.clone())

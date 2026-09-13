@@ -3,13 +3,16 @@
 //! document の insert と lineage(link) の append を**同一トランザクション**で確定させる。
 //! これを分けると、途中で失敗したときに hash-chain が切れる。
 
-use anyhow::{Result, bail};
+use anyhow::Result;
 
-use crate::domain::capture::{CaptureContext, DocumentAsset, ImageAttachment};
-use crate::domain::lineage::{LineageInput, LineageLedger, relation};
-use crate::domain::meta::{MetaAssignment, MetaSource, auto_label, parse_meta_tags};
-use crate::domain::ports::{CaptureStore, CaptureTx};
-use crate::domain::shared::{Clock, Hasher, IdGenerator};
+use crate::domain::note::{CaptureContext, ImageAttachment, Note};
+use lineage_core::domain::lineage::{LineageInput, relation};
+use lineage_core::domain::meta::{MetaAssignment, MetaSource, auto_label, parse_meta_tags};
+use lineage_core::domain::ports::DocumentStore;
+use lineage_core::domain::shared::{Clock, Hasher, IdGenerator};
+use lineage_core::features::document::{
+    LinkedDocument, SaveDocument, SaveDocumentInput, WriteMode,
+};
 
 /// ローカル利用（単一利用者）の actor。クラウド接続では JWT の sub が入る。
 pub const LOCAL_ACTOR: &str = "local";
@@ -49,7 +52,7 @@ pub struct CaptureMemoOutput {
 }
 
 pub struct CaptureMemo<'a> {
-    store: &'a dyn CaptureStore,
+    store: &'a dyn DocumentStore,
     clock: &'a dyn Clock,
     ids: &'a dyn IdGenerator,
     hasher: &'a dyn Hasher,
@@ -57,7 +60,7 @@ pub struct CaptureMemo<'a> {
 
 impl<'a> CaptureMemo<'a> {
     pub fn new(
-        store: &'a dyn CaptureStore,
+        store: &'a dyn DocumentStore,
         clock: &'a dyn Clock,
         ids: &'a dyn IdGenerator,
         hasher: &'a dyn Hasher,
@@ -71,20 +74,15 @@ impl<'a> CaptureMemo<'a> {
     }
 
     pub fn execute(&self, input: CaptureMemoInput) -> Result<CaptureMemoOutput> {
-        let body = input.body.trim_end().to_string();
-        if body.trim().is_empty() {
-            bail!("本文が空です");
-        }
-
+        let note = Note::new(input.body)?;
         let now = self.clock.now_rfc3339();
-        let document = DocumentAsset::memo(
+        let document = note.into_document(
             input
                 .document_id
                 .clone()
                 .unwrap_or_else(|| self.ids.new_id()),
-            &input.workspace_id,
-            body,
-            &now,
+            input.workspace_id.clone(),
+            now.clone(),
         );
         let mut metas = collect_metas(&document.body_text, &input.metas);
         // `#app` is an explicit request to promote observed application metadata.
@@ -113,64 +111,47 @@ impl<'a> CaptureMemo<'a> {
             created_at: now.clone(),
         };
 
-        let mut appended: Option<(i64, String)> = None;
-        let images = input
+        let attachments = input
             .images
             .into_iter()
-            .map(|image| DocumentAsset::image(self.ids.new_id(), &input.workspace_id, image, &now))
-            .collect::<Vec<_>>();
-
-        self.store.transact(&mut |tx: &mut dyn CaptureTx| {
-            tx.ensure_workspace(&input.workspace_id, &input.workspace_name, &now)?;
-            if input.document_id.is_some() {
-                tx.update_document(&document)?;
-                tx.clear_document_metas(&document.id)?;
-            } else {
-                tx.insert_document(&document)?;
-            }
-
-            if let Some(context) = input.context.as_ref() {
-                for metadata in context.metadata() {
-                    tx.insert_document_metadata(&self.ids.new_id(), &document.id, &metadata, &now)?;
-                }
-            }
-
-            for meta in &metas {
-                // Observed metadata never reaches the completion registry.
-                tx.learn_meta_tag(&self.ids.new_id(), &input.workspace_id, &meta.label, &now)?;
-                tx.insert_document_meta(&self.ids.new_id(), &document.id, meta, &now)?;
-            }
-
-            let prev = tx.last_link(&input.workspace_id)?;
-            let ledger = LineageLedger::new(self.hasher);
-            let link = ledger.append_next(prev.as_ref(), self.ids.new_id(), lineage_input.clone());
-            tx.append_link(&link)?;
-            let mut previous = link;
-
-            for image in &images {
-                tx.insert_document(image)?;
-                let attachment_input = LineageInput {
+            .map(|image| {
+                let image = image.into_document(self.ids.new_id(), &input.workspace_id, &now);
+                let lineage = LineageInput {
                     workspace_id: input.workspace_id.clone(),
-                    source_kind: TARGET_KIND_DOCUMENT.to_string(),
+                    source_kind: TARGET_KIND_DOCUMENT.into(),
                     source_id: image.id.clone(),
-                    target_kind: TARGET_KIND_DOCUMENT.to_string(),
+                    target_kind: TARGET_KIND_DOCUMENT.into(),
                     target_id: document.id.clone(),
-                    relation_type: relation::ATTACHMENT_FOR.to_string(),
-                    actor: LOCAL_ACTOR.to_string(),
+                    relation_type: relation::ATTACHMENT_FOR.into(),
+                    actor: LOCAL_ACTOR.into(),
                     created_at: now.clone(),
                 };
-                let attachment_link =
-                    ledger.append_next(Some(&previous), self.ids.new_id(), attachment_input);
-                tx.append_link(&attachment_link)?;
-                previous = attachment_link;
-            }
-
-            appended = Some((previous.seq, previous.content_hash.clone()));
-            Ok(())
-        })?;
-
-        let (seq, content_hash) =
-            appended.ok_or_else(|| anyhow::anyhow!("lineage が追記されませんでした"))?;
+                LinkedDocument {
+                    document: image,
+                    lineage,
+                }
+            })
+            .collect();
+        let metadata = input
+            .context
+            .as_ref()
+            .map(|context| context.metadata())
+            .unwrap_or_default();
+        let saved =
+            SaveDocument::new(self.store, self.ids, self.hasher).execute(SaveDocumentInput {
+                workspace_name: input.workspace_name,
+                mode: if input.document_id.is_some() {
+                    WriteMode::Update
+                } else {
+                    WriteMode::Insert
+                },
+                document: document.clone(),
+                lineage: lineage_input,
+                metas: metas.clone(),
+                metadata,
+                attachments,
+            })?;
+        let (seq, content_hash) = (saved.seq, saved.content_hash);
 
         Ok(CaptureMemoOutput {
             document_id: document.id,
@@ -203,11 +184,11 @@ fn collect_metas(body: &str, confirmed: &[MetaAssignment]) -> Vec<MetaAssignment
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::lineage::{LineageLedger, VerifyResult};
-    use crate::domain::ports::MemoQuery;
-    use crate::infra::clock::{FixedClock, SequentialIds};
-    use crate::infra::crypto::Sha256Hasher;
-    use crate::infra::sqlite::Database;
+    use lineage_core::domain::lineage::{LineageLedger, VerifyResult};
+    use lineage_core::domain::ports::DocumentQuery;
+    use lineage_core::infra::clock::{FixedClock, SequentialIds};
+    use lineage_core::infra::crypto::Sha256Hasher;
+    use lineage_core::infra::sqlite::Database;
 
     struct Fixture {
         db: Database,
@@ -308,7 +289,7 @@ mod tests {
         assert_eq!(second.seq, 2);
         assert_ne!(first.content_hash, second.content_hash);
 
-        let records = crate::domain::ports::LineageQuery::list(&f.db, "ws").unwrap();
+        let records = lineage_core::domain::ports::LineageQuery::list(&f.db, "ws").unwrap();
         assert_eq!(records[1].prev_hash, records[0].content_hash);
         assert_eq!(
             LineageLedger::new(&f.hasher).verify(&records),
@@ -334,7 +315,7 @@ mod tests {
             })
             .unwrap();
 
-        let records = crate::domain::ports::LineageQuery::list(&f.db, "ws").unwrap();
+        let records = lineage_core::domain::ports::LineageQuery::list(&f.db, "ws").unwrap();
         assert_eq!(out.seq, 2);
         assert_eq!(records[1].relation_type, relation::ATTACHMENT_FOR);
         assert_eq!(records[1].target_id, out.document_id);
@@ -380,7 +361,7 @@ mod tests {
         f.capture("#タスク B", None);
         f.capture("#投資 C", None);
 
-        let tags = crate::domain::ports::MetaTagQuery::all(&f.db, "ws", 100).unwrap();
+        let tags = lineage_core::domain::ports::MetaTagQuery::all(&f.db, "ws", 100).unwrap();
         let task = tags.iter().find(|t| t.label == "タスク").unwrap();
         assert_eq!(task.usage_count, 2);
         assert_eq!(task.last_used_at.as_deref(), Some("2026-08-08T12:00:00Z"));

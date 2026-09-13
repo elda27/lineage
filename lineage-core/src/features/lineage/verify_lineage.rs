@@ -26,12 +26,15 @@ impl<'a> VerifyLineage<'a> {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::domain::document::DocumentAsset;
     use crate::domain::lineage::BrokenReason;
-    use crate::features::capture::{CaptureMemo, CaptureMemoInput};
+    use crate::domain::lineage::LineageInput;
+    use crate::domain::shared::{Clock, IdGenerator};
+    use crate::features::document::{SaveDocument, SaveDocumentInput, WriteMode};
     use crate::infra::clock::{FixedClock, SequentialIds};
     use crate::infra::crypto::Sha256Hasher;
     use crate::infra::sqlite::Database;
-    use super::*;
 
     #[test]
     fn detects_a_tampered_ledger() {
@@ -41,15 +44,35 @@ mod tests {
         let hasher = Sha256Hasher;
 
         for body in ["1件目", "2件目", "3件目"] {
-            CaptureMemo::new(&db, &clock, &ids, &hasher)
-                .execute(CaptureMemoInput {
-                    workspace_id: "ws".into(),
-                    workspace_name: "minos".into(),
-                    body: body.into(),
-                    document_id: None,
-                    metas: Vec::new(),
-                    context: None,
-                    images: Vec::new(),
+            let id = ids.new_id();
+            let now = clock.now_rfc3339();
+            SaveDocument::new(&db, &ids, &hasher)
+                .execute(SaveDocumentInput {
+                    workspace_name: "test".into(),
+                    mode: WriteMode::Insert,
+                    document: DocumentAsset {
+                        id: id.clone(),
+                        workspace_id: "ws".into(),
+                        title: "Explicit title".into(),
+                        body_text: body.into(),
+                        blob_uri: None,
+                        document_type: "memo".into(),
+                        created_at: now.clone(),
+                        updated_at: now.clone(),
+                    },
+                    lineage: LineageInput {
+                        workspace_id: "ws".into(),
+                        source_kind: "test".into(),
+                        source_id: "seed".into(),
+                        target_kind: "document".into(),
+                        target_id: id,
+                        relation_type: "derived_from".into(),
+                        actor: "test".into(),
+                        created_at: now,
+                    },
+                    metas: vec![],
+                    metadata: vec![],
+                    attachments: vec![],
                 })
                 .unwrap();
         }

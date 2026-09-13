@@ -7,19 +7,25 @@
 //! ブラウザ方式だけは実行部が fullos（WebView を持つ側）に出るため、
 //! `begin` → 外で実行 → `finish_*` という分割した入口も用意してある。
 
+use crate::domain::automation::{matches, render_prompt, result_title};
+use crate::domain::inference::InferenceOutcome;
+use crate::domain::inference::InferenceRequest;
+use crate::domain::ports::InferenceBackend;
 use anyhow::{Context, Result};
+use lineage_core::domain::document::DocumentSnapshot;
 
-use crate::domain::automation::{
-    ACTOR_PREFIX, AutomationRule, AutomationRun, DOCUMENT_TYPE_AUTOMATION_RESULT, InferenceOutcome,
-    InferenceRequest, MemoSnapshot, RunStatus, TriggerKind, matches, render_prompt, result_title,
+use lineage_core::domain::automation::{
+    ACTOR_PREFIX, AutomationRule, AutomationRun, DOCUMENT_TYPE_AUTOMATION_RESULT, RunStatus,
+    TriggerKind,
 };
-use crate::domain::capture::DocumentAsset;
-use crate::domain::lineage::{LineageInput, LineageLedger, relation};
-use crate::domain::ports::{
-    AutomationRuleQuery, AutomationRunStore, AutomationStore, AutomationTx, InferenceBackend,
-    MemoQuery,
+use lineage_core::domain::document::DocumentAsset;
+use lineage_core::domain::lineage::{LineageInput, relation};
+use lineage_core::domain::ports::{
+    AutomationRuleQuery, AutomationRunStore, AutomationStore, DocumentQuery,
 };
-use crate::domain::shared::{Clock, Hasher, IdGenerator};
+use lineage_core::domain::shared::{Clock, Hasher, IdGenerator};
+
+use lineage_core::features::document::{CommitAutomationResult, LinkedDocument};
 
 use super::schedule::{is_due, parse_time};
 
@@ -36,7 +42,7 @@ const PENDING_SCAN_LIMIT: usize = 200;
 pub struct Automation<'a> {
     pub rules: &'a dyn AutomationRuleQuery,
     pub runs: &'a dyn AutomationRunStore,
-    pub memos: &'a dyn MemoQuery,
+    pub memos: &'a dyn DocumentQuery,
     pub store: &'a dyn AutomationStore,
     pub clock: &'a dyn Clock,
     pub ids: &'a dyn IdGenerator,
@@ -84,7 +90,7 @@ impl Automation<'_> {
     pub fn run_rule(
         &self,
         rule: &AutomationRule,
-        memo: &MemoSnapshot,
+        memo: &DocumentSnapshot,
         backend: &dyn InferenceBackend,
     ) -> Result<AutomationRun> {
         let run = self.begin(rule, memo)?;
@@ -134,7 +140,11 @@ impl Automation<'_> {
     }
 
     /// メタ情報マッチのルールについて、まだ処理していない記録を返す。
-    pub fn pending(&self, workspace_id: &str, rule: &AutomationRule) -> Result<Vec<MemoSnapshot>> {
+    pub fn pending(
+        &self,
+        workspace_id: &str,
+        rule: &AutomationRule,
+    ) -> Result<Vec<DocumentSnapshot>> {
         if !rule.enabled {
             return Ok(Vec::new());
         }
@@ -184,7 +194,7 @@ impl Automation<'_> {
     }
 
     /// 実行を `running` として記録する。
-    fn begin(&self, rule: &AutomationRule, memo: &MemoSnapshot) -> Result<AutomationRun> {
+    fn begin(&self, rule: &AutomationRule, memo: &DocumentSnapshot) -> Result<AutomationRun> {
         let run = AutomationRun {
             id: self.ids.new_id(),
             workspace_id: rule.workspace_id.clone(),
@@ -208,7 +218,7 @@ impl Automation<'_> {
         &self,
         mut run: AutomationRun,
         rule: &AutomationRule,
-        memo: &MemoSnapshot,
+        memo: &DocumentSnapshot,
         text: &str,
     ) -> Result<AutomationRun> {
         let now = self.clock.now_rfc3339();
@@ -238,19 +248,18 @@ impl Automation<'_> {
         run.result_document_id = Some(result.id.clone());
         run.finished_at = Some(now);
 
-        let finished = run.clone();
-        self.store.transact(&mut |tx: &mut dyn AutomationTx| {
-            tx.insert_document(&result)?;
-            let prev = tx.last_link(&rule.workspace_id)?;
-            let link = LineageLedger::new(self.hasher).append_next(
-                prev.as_ref(),
-                self.ids.new_id(),
-                lineage_input.clone(),
-            );
-            tx.append_link(&link)?;
-            tx.finish_run(&finished)?;
-            Ok(())
-        })?;
+        CommitAutomationResult {
+            store: self.store,
+            ids: self.ids,
+            hasher: self.hasher,
+        }
+        .execute(
+            &run,
+            Some(LinkedDocument {
+                document: result,
+                lineage: lineage_input,
+            }),
+        )?;
 
         Ok(run)
     }
@@ -277,11 +286,12 @@ impl Automation<'_> {
     }
 
     fn finish_without_result(&self, run: AutomationRun) -> Result<AutomationRun> {
-        let finished = run.clone();
-        self.store.transact(&mut |tx: &mut dyn AutomationTx| {
-            tx.finish_run(&finished)?;
-            Ok(())
-        })?;
+        CommitAutomationResult {
+            store: self.store,
+            ids: self.ids,
+            hasher: self.hasher,
+        }
+        .execute(&run, None)?;
         Ok(run)
     }
 
@@ -291,7 +301,7 @@ impl Automation<'_> {
             .with_context(|| format!("自動化ルールが見つかりません: {rule_id}"))
     }
 
-    fn require_memo(&self, workspace_id: &str, memo_id: &str) -> Result<MemoSnapshot> {
+    fn require_memo(&self, workspace_id: &str, memo_id: &str) -> Result<DocumentSnapshot> {
         self.memos
             .get(workspace_id, memo_id)?
             .with_context(|| format!("記録が見つかりません: {memo_id}"))
@@ -300,12 +310,12 @@ impl Automation<'_> {
 
 #[cfg(test)]
 mod tests {
-    use crate::domain::automation::{MetaCondition, Trigger};
-    use crate::domain::lineage::VerifyResult;
-    use crate::domain::meta::MetaAssignment;
-    use crate::domain::ports::LineageQuery;
-    use crate::features::automation::test_support::{Fixture, StubBackend, rule};
     use super::*;
+    use crate::features::automation::test_support::{Fixture, StubBackend, rule};
+    use lineage_core::domain::automation::{MetaCondition, Trigger};
+    use lineage_core::domain::lineage::{LineageLedger, VerifyResult};
+    use lineage_core::domain::meta::MetaAssignment;
+    use lineage_core::domain::ports::LineageQuery;
 
     #[test]
     fn a_successful_run_stores_the_result_and_extends_the_chain() {

@@ -4,21 +4,46 @@
 [`adr/README.md`](./adr/README.md) と各 ADR を参照する。2026-08-20 の Design Doc は検討時点の
 snapshot であり、長期的な規範は accepted ADR を正本とする。
 
-## 実装状況（2026-09-07）
+## 実装状況（2026-09-13）
 
-PR #43は取り消し、Issue #47ではコード配置の変更のみを実施する。
-以下の節はADRの目標設計であり、全項目が実装済みであることを意味しない。
+PR #43は取り消し済み。Issue #47 / PR #48の配置整理に続き、Issue #49でMinos・Runnerの
+責務をShared Kernelから分離する。以下はこのブランチの実装状況である。
 
-| 範囲 | この段階の状態 |
+| 範囲 | 実装 |
 | --- | --- |
-| Rust / FullOS coreのuse case層 | `app`から`features`へ配置と参照を変更 |
-| FullOS UI | `pages`、`components/base`、`components/containers`、`features/*/components`へ整理 |
-| FullOS domain / infra | 引き続き`fullos/core/domain`と`fullos/core/infra`に配置 |
-| Shared Kernel縮小・app-local Noteモデル | 後続作業。既存モデルの意味を変更しない |
-| Minos / AgentOSの内部再編・依存境界の強制 | 後続作業 |
-| theme・compile-time capability・content/sync・Git/LFS・publication | この配置変更に含めない |
+| Shared Kernel | `domain/document`に完成済み記録・参照契約、`features/document`に記録とlineageの一括保存 |
+| Minos | `domain/note`に入力モデル・タイトル・foreground context、`features/capture`に入力確定、`domain/settings`・`features/settings`に設定解釈 |
+| Runner / AgentOS | `domain`に条件評価・prompt・推論port、`features/automation`に実行・cron、`infra`にHTTP・資格情報adapter |
+| 共有の自動化契約 | `AutomationRule` / `AutomationRun`の保存形式と、結果・lineage・runの同時確定はcoreで維持 |
+| 保存先 | 各アプリの`infra/storage`が既存の`%LOCALAPPDATA%/minos/lineage.db`を選択し、coreの`Database::open(path)`へ渡す |
+| FullOS UI | `pages`、`components/base`、`components/containers`、`features/*/components`へ整理済み。共通のタグ・検索UIは`components/containers`、補完hookは`shared/hooks` |
+| FullOS domain / infra | `fullos/core/domain`と`fullos/core/infra`に配置。`Memo`から`Note`への用語統一は後続 |
+| 検証 | Minosは既定の`desktop`を維持し、`--no-default-features`で入力・設定・添付をGUIなしでテスト可能。境界チェックとWindows通常構成をCIで検証 |
+| theme・compile-time capability・content/sync・Git/LFS・publication | 未実装の後続テーマ。この変更で完了とはしない |
+
+`SaveDocument`は入力文の解釈を行わず、アプリが準備したtitle/body/source/actorを保存する。
+添付・タグ・観測メタデータを含めて失敗時にロールバックする。`CommitAutomationResult`も
+結果記録とlineageだけを先に残さず、実行中のrunの確定まで同じtransactionに収める。
+
+共有SQLite adapterはschema・mutation・transactionの整合性を一か所で守るためcoreに残す。
+既定パス、添付コピー、OS連携、provider、資格情報、cronは共有保存の規則ではないため各アプリが所有する。
+DB schema、既存パス、JSONフィールド、CLI command、バイナリ名はこの変更で変えない。
+Rust APIの`capture` / `MemoSnapshot` / `MemoQuery`は`document` / `DocumentSnapshot` / `DocumentQuery`へ
+置き換え、旧APIへの互換aliasは作らない。
 
 親Issue #22は継続する。実行ファイル名は現行の`minos`・`fullos`・`agentos`を使用する。
+
+### 確認コマンド
+
+- `python .github/scripts/check-boundaries.py`
+- `cargo test -p lineage-core -p agentos --locked`
+- `cargo test -p minos --no-default-features --lib --locked`
+- Windows: `cargo check -p minos --all-targets --locked`
+- `cd fullos`で`pnpm build`
+
+LinuxでDBus開発ライブラリを持たない環境では、Runnerのテストに
+`cargo test -p agentos --features keyring/vendored --locked`を使える。これはテスト時の依存ビルド方法であり、
+製品の既定featureや資格情報の保存方式は変更しない。
 
 ## Components
 

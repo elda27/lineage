@@ -5,15 +5,13 @@
 //! 入力は SQLite（`db/schema.sql`）に保存され、同時に Lineage の hash-chain へ追記される。
 //!
 //! レイヤ構成は docs/concept/MINIMAL_ARCHITECTURE.md に従う。
-//! 依存方向は features/infra → app → domain（domain と app は lineage-core が持つ）。
+//! Minos の domain/features/infra を組み立て、共有記録の保存には lineage-core を使う。
 //! このファイルは composition root で、具体的な実装を組み立てて注入する役に徹する。
 
 // リリースビルドではコンソールウィンドウを出さない（常駐アプリのため）。
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-mod app;
-mod features;
-mod infra;
+use minos::{app, domain, features, infra};
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -25,8 +23,7 @@ use gpui::{
 };
 use gpui_component::Root;
 
-use lineage_core::domain::settings::Settings;
-use lineage_core::infra::sqlite::Database;
+use crate::domain::settings::Settings;
 
 use crate::app::Services;
 use crate::features::capture::view::CaptureView;
@@ -85,7 +82,7 @@ fn main() {
         }
     };
 
-    let database = match Database::open_default() {
+    let database = match crate::infra::storage::open_default() {
         Ok(database) => {
             log::info!("データベースを開きました");
             database

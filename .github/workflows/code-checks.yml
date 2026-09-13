@@ -1,0 +1,48 @@
+name: code-checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: code-checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  boundaries-and-fullos:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python .github/scripts/check-boundaries.py
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+          package_json_file: fullos/package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: pnpm install --frozen-lockfile
+        working-directory: fullos
+      - run: pnpm build
+        working-directory: fullos
+
+  rust-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all -- --check
+      - run: cargo test -p lineage-core -p agentos --locked
+      - run: cargo test -p minos --no-default-features --lib --locked
+      - name: Check normal Minos desktop and test targets
+        run: cargo check -p minos --all-targets --locked

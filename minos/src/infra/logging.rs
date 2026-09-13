@@ -7,8 +7,6 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use env_logger::{Builder, Env, Target};
 
-use lineage_core::infra::sqlite::Database;
-
 const LOG_FILE_NAME: &str = "minos.log";
 
 /// `%LOCALAPPDATA%\minos\minos.log` へ追記するロガーを初期化する。
@@ -35,7 +33,7 @@ pub fn init() -> Result<PathBuf> {
 }
 
 fn log_file_path() -> Result<PathBuf> {
-    let database = Database::default_path()?;
+    let database = crate::infra::storage::default_path()?;
     let directory = database
         .parent()
         .context("データディレクトリを特定できません")?;

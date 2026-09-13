@@ -2,8 +2,8 @@
 
 use anyhow::Result;
 
-use crate::domain::ports::SettingsRepository;
 use crate::domain::settings::Settings;
+use lineage_core::domain::ports::SettingsRepository;
 
 pub struct LoadSettings<'a> {
     repository: &'a dyn SettingsRepository,
