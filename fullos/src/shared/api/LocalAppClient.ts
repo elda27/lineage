@@ -2,8 +2,8 @@ import Database from "@tauri-apps/plugin-sql";
 import { invoke } from "@tauri-apps/api/core";
 import { join, localDataDir } from "@tauri-apps/api/path";
 
-import { ListMemos, DEFAULT_MEMO_LIMIT } from "@core/app/memo/ListMemos";
-import { SuggestMetaTags, DEFAULT_SUGGESTION_LIMIT } from "@core/app/meta/SuggestMetaTags";
+import { ListMemos, DEFAULT_MEMO_LIMIT } from "@core/features/memo/ListMemos";
+import { SuggestMetaTags, DEFAULT_SUGGESTION_LIMIT } from "@core/features/meta/SuggestMetaTags";
 import type {
   AutomationRule,
   AutomationRulePatch,
@@ -22,7 +22,7 @@ import {
   parseAgentSkillPreference,
   type AgentSkillPreference,
 } from "@core/domain/skill/AgentSkill";
-import { InstallAgentSkills, SyncAgentSkills } from "@core/app/skill/SyncAgentSkills";
+import { InstallAgentSkills, SyncAgentSkills } from "@core/features/skill/SyncAgentSkills";
 import { TauriAgentSkillStore } from "@core/infra/agent/TauriAgentSkillStore";
 import {
   SqliteAutomationRuleRepository,

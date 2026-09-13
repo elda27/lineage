@@ -1,8 +1,8 @@
 import type { Account } from "@core/domain/account/Account";
-import { AccountButton } from "@/features/workspace/ui/AccountButton";
-import { StorageMeter } from "@/features/workspace/ui/StorageMeter";
+import { AccountButton } from "@/features/workspace/components/AccountButton";
+import { StorageMeter } from "@/features/workspace/components/StorageMeter";
 import type { Page } from "@/shared/navigation";
-import { Icon, type IconName } from "@/shared/ui/kit";
+import { Icon, type IconName } from "@/components/base";
 
 export function Sidebar({
   page,

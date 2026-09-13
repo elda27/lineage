@@ -68,102 +68,39 @@ Tauri アプリも Web ビルドも、ローカル接続とクラウド接続の
 
 2. DDD を意図したフォルダ構成
 
-レイヤを物理ディレクトリで分離する。依存方向は外→内（features(presentation)/infra → app → domain）。
-domain は他のどの層にも依存しない。
+2026-09-07: Issue #47でコード配置を整理した。設計判断はADR-0005・ADR-0007、
+実装範囲と後続作業は [architecture overview](../arch/README.md) を参照する。
 
-層の名前は短縮形を使う（`application` → `app`、`infrastructure` → `infra`）。
-presentation 層は層ごとではなく**機能ごと**に切り、`features/<機能>/` の下に
-その機能の api / ui / service をまとめる。画面を1つ足すときに開くフォルダを1つにするため。
+| 配置 | 責務 |
+| --- | --- |
+| `lineage-core/src/domain/` | 共有ドメイン、port、不変条件 |
+| `lineage-core/src/features/` | automation / capture / lineage / meta / mutation / settings のユースケース |
+| `lineage-core/src/infra/` | SQLite、provider、OS credential等の実装 |
+| `minos/src/app.rs` | Minosのcomposition root |
+| `minos/src/features/` | Minosの入力UI |
+| `agentos/src/main.rs` | AgentOSのCLIとcomposition root |
+| `fullos/src/app/` | React shell、navigationと画面をまたぐ状態 |
+| `fullos/src/pages/` | Home / Search / Settings / Automation / Tag Explorerの画面 |
+| `fullos/src/components/base/` | Icon、Toggle、共通Tailwindクラス |
+| `fullos/src/components/containers/` | 複数の設定画面部品から使うSettingRow |
+| `fullos/src/features/<機能>/components/` | 各機能のUI部品 |
+| `fullos/src/features/<機能>/service/` | hookと表示用モデル |
+| `fullos/src/shared/api/` | ApplicationPortと接続モード別実装 |
+| `fullos/core/domain/` | FullOSのドメイン型とport |
+| `fullos/core/features/` | ListMemos / SuggestMetaTags / SyncAgentSkills等 |
+| `fullos/core/infra/` | portの具体実装 |
+| `fullos/src-tauri/` | Tauriの起動とOS連携 |
 
-lineage/
-├─ src/                         # フロントエンド（presentation）
-│   ├─ main.tsx                 #   エントリ
-│   ├─ app/                     # シェル（composition root）
-│   │   ├─ App.tsx              #   どの画面を出すか + 画面をまたぐ状態
-│   │   └─ Sidebar.tsx
-│   ├─ features/                # ★ 機能ごとの presentation 層
-│   │   ├─ memo/                #   記録（ホーム・検索・詳細）
-│   │   │   ├─ ui/              #     画面・コンポーネント
-│   │   │   └─ service/         #     画面のための状態（hooks）と表示用モデル
-│   │   ├─ automation/          #   自動化（ui/ + service/）
-│   │   ├─ settings/            #   設定
-│   │   ├─ updater/             #   自動更新
-│   │   └─ workspace/           #   アカウント・ストレージ使用量
-│   └─ shared/                  # 機能をまたいで使うもの
-│       ├─ api/                 #   ApplicationPort と2実装
-│       │   ├─ ApplicationPort.ts #   UI が依存するインターフェース
-│       │   ├─ LocalAppClient.ts  #   Tauri: in-process 呼び出し
-│       │   └─ HttpAppClient.ts   #   Cloud: fetch
-│       ├─ ui/kit.tsx           #   見た目の共通部品
-│       ├─ format.ts
-│       └─ navigation.ts
-│
-├─ core/                        # フレームワーク非依存の中核（両ターゲット共有）
-│   ├─ domain/                  # ★ 何にも依存しない
-│   │   ├─ asset/               #   Asset エンティティ・値オブジェクト
-│   │   ├─ lineage/             #   Lineage エンティティ + LineageLedger(真正性)
-│   │   ├─ table/               #   Table/Row/Cell
-│   │   ├─ shared/              #   Hash, Id, Clock などの値オブジェクト
-│   │   └─ ports/               #   Repository インターフェース（実装は infra）
-│   ├─ app/                     # ユースケース（アプリケーションサービス）
-│   │   ├─ memo/                #   ★ ここも機能単位。1ユースケース＝1ファイル
-│   │   │   ├─ WriteMemo.ts     #     行メモ→document→lineage を1トランザクションで
-│   │   │   └─ ListMemos.ts
-│   │   ├─ meta/
-│   │   │   └─ SuggestMetaTags.ts
-│   │   └─ lineage/
-│   │       └─ VerifyLineage.ts #     hash-chain 検証
-│   └─ infra/                   # ports の実装（外側）
-│       ├─ persistence/
-│       │   ├─ sqlite/          #   SqliteAssetRepository ほか（plugin-sql / better-sqlite3）
-│       │   └─ d1/              #   D1AssetRepository ほか
-│       ├─ crypto/              #   WebCrypto を使う Sha256Hasher
-│       └─ storage/             #   LocalFileStorage / R2Storage
-│
-├─ worker/                      # クラウドエントリ（Cloudflare Workers）
-│   ├─ index.ts                 #   Hono アプリ。auth → application を呼ぶだけ
-│   └─ wrangler.toml
-│
-├─ src-tauri/                   # ローカルエントリ（Tauri Rust shell）
-│   └─ ...                      #   plugin-sql は読み出し用。書き込みは Rust mutation API
-│
-├─ db/
-│   └─ schema.sql               # ★ SQLite/D1 共通スキーマ（migration の起点）
-│
-└─ doc/
+`app` は起動・組み立てに使い、ユースケース層は `features` と呼ぶ。
+Rustの呼び出しは `lineage_core::features::<機能>::<ユースケース>` を用いる。
+`mutation` のような単一ファイルの機能は `lineage_core::features::mutation::ApplyMutation` とする。
 
-依存ルール:
-- domain は import で app/infra/features を参照しない。
-- app（ユースケース）は domain と ports(interface) のみに依存する。
-- features は `shared/api` の ApplicationPort 越しにだけ app を呼ぶ。
-  機能どうしの参照は「ui は他機能の ui を使ってよいが、service は自機能のものだけ」を目安にする。
-- worker / src-tauri / src/app は「組み立て役(composition root)」であり、
-  ここで具体的な Repository 実装を app に注入する。
+TypeScriptのimport aliasは `@core/*` が `fullos/core/*`、`@/*` が `fullos/src/*`。
+`tsconfig.json` と `vite.config.ts` の対応を揃える。画面はfeature部品とserviceを利用し、
+汎用部品は特定のdomainやfeatureに依存しない。
 
-import は `@core/*`（core/）と `@/*`（src/）の別名で書く。
-対応は tsconfig.json の `paths` と vite.config.ts の `resolve.alias` の2か所にあり、
-片方だけ足すと型は通ってビルドが落ちる。
-
-ローカル側の Rust クレート（lineage-core）:
-
-ローカルのデスクトップ側は Rust で書かれた3つの実行ファイルからなり、
-ドメイン・ユースケース・永続化は lineage-core クレート1本を共有する。
-
-lineage-core/src/app/ も同じ規則で機能単位に分ける。
-機能の `mod.rs` がその機能のユースケースを再輸出するので、呼び出し側が見るのは
-`lineage_core::app::<機能>::<ユースケース>` だけになり、ファイルの割り方に依存しない。
-
-lineage-core/src/app/
-├─ automation/          # run（実行の入口）/ schedule（cron 判定）/ backend（実行環境の線引き）
-├─ capture/             # CaptureMemo（入力1件の確定）
-├─ lineage/             # VerifyLineage（hash-chain 検証）
-├─ meta/                # CompleteMetaTag（`#` の補完）
-└─ settings/            # LoadSettings / SaveSettings
-
-lineage-core/           # domain / app / infra（上と同じ層構成）
-minos/                  # クイック入力（gpui）。lineage-core に依存
-agentos/                # 自動化の実行（CUI・常駐しない）。lineage-core に依存
-fullos/src-tauri/       # Tauri シェル。agentos.exe を同梱して呼び出す
+この段階ではファイル配置と参照のみを変更する。Minos/AgentOSの追加分割、Shared Kernelの縮小、
+FullOS coreのsrc配下への統合、依存注入の再設計、themeの変更は親Issue #22の後続作業である。
 
 fullos が lineage-core を直接リンクしないのは、tauri-plugin-sql(sqlx) と
 rusqlite がどちらも native の sqlite3 をリンクしていて同居できないため。
@@ -337,7 +274,7 @@ import { cors } from "hono/cors";
 import { jwtVerify, createRemoteJWKSet } from "jose";
 import { D1AssetRepository, D1LineageRepository } from "@core/infra/persistence/d1";
 import { Sha256Hasher } from "@core/infra/crypto/Sha256Hasher";
-import { WriteMemo } from "@core/app/WriteMemo";
+import { WriteMemo } from "@core/features/memo/WriteMemo";
 
 type Env = {
   DB: D1Database;
