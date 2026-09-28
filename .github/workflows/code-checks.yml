@@ -46,3 +46,6 @@ jobs:
       - run: cargo test -p minos --no-default-features --lib --locked
       - name: Check normal Minos desktop and test targets
         run: cargo check -p minos --all-targets --locked
+
+      - name: Check FullOS native Rust boundary
+        run: cargo check --manifest-path fullos/src-tauri/Cargo.toml --locked

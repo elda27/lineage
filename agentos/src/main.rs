@@ -61,6 +61,26 @@ struct Global {
 
 #[derive(Subcommand)]
 enum Command {
+    /// JSONからNoteを作成／更新する。id指定時は既存Noteを更新する。
+    Put {
+        #[arg(long)]
+        request_file: String,
+    },
+    /// 記録を取得する。
+    Get {
+        #[arg(long)]
+        note: String,
+    },
+    /// 記録を新しい順に一覧する。
+    Notes {
+        #[arg(long, default_value_t = 50)]
+        limit: usize,
+    },
+    /// 自動化の実行履歴を取得する。
+    Runs {
+        #[arg(long, default_value_t = 50)]
+        limit: usize,
+    },
     /// ルールを1件、指定の記録に対して実行する。
     Run {
         #[arg(long)]
@@ -110,10 +130,10 @@ enum Command {
     Rules,
     /// hash-chain を検証する。
     Verify,
-    /// FullOS などから受け取った差分更新を適用する。
+    /// 外部スクリプトから受け取った差分更新を適用する。
     ///
     /// リクエスト本体は標準入力（`-`）またはファイルから JSON で読む。
-    /// DB の書き込みは lineage-core の application service に集約する。
+    /// DB の書き込みは共有のトランザクション境界へ渡す。
     Apply {
         /// 差分更新 JSON のファイル。`-` で標準入力。
         #[arg(long, value_name = "PATH")]
@@ -165,6 +185,40 @@ fn dispatch(cli: &Cli) -> Result<i32> {
 
     let session = Session::open(&cli.global)?;
     match &cli.command {
+        Command::Put { request_file } => {
+            let input = serde_json::from_str(&read_result(request_file)?)?;
+            let id = agentos::features::notes::put(&session.database, &session.workspace, input)?;
+            session.print_json(&serde_json::json!({"id": id}))?;
+            Ok(0)
+        }
+        Command::Get { note } => {
+            let value = lineage_store::ports::DocumentQuery::get(
+                &session.database,
+                &session.workspace,
+                note,
+            )?
+            .context("記録が見つかりません")?;
+            session.print_json(&value)?;
+            Ok(0)
+        }
+        Command::Notes { limit } => {
+            ensure!(*limit > 0 && *limit <= 1000, "limit must be 1..1000");
+            session.print_json(&lineage_store::ports::DocumentQuery::recent(
+                &session.database,
+                &session.workspace,
+                *limit,
+            )?)?;
+            Ok(0)
+        }
+        Command::Runs { limit } => {
+            ensure!(*limit > 0 && *limit <= 1000, "limit must be 1..1000");
+            session.print_json(&lineage_store::ports::AutomationRunStore::recent(
+                &session.database,
+                &session.workspace,
+                *limit,
+            )?)?;
+            Ok(0)
+        }
         Command::Run { rule, memo } => session.run(rule, memo),
         Command::Match { memo } => session.match_rules(memo),
         Command::Render { rule, memo } => session.render(rule, memo),

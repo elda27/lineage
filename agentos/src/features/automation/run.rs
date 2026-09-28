@@ -11,6 +11,7 @@ use crate::domain::automation::{matches, render_prompt, result_title};
 use crate::domain::inference::InferenceOutcome;
 use crate::domain::inference::InferenceRequest;
 use crate::domain::ports::InferenceBackend;
+use crate::features::automation::commit_result::CommitAutomationResult;
 use anyhow::{Context, Result};
 use lineage_core::domain::document::DocumentSnapshot;
 
@@ -26,7 +27,7 @@ use lineage_store::ports::{
 };
 use lineage_store::ports::{Clock, IdGenerator};
 
-use lineage_store::features::document::{CommitAutomationResult, LinkedDocument};
+use lineage_store::features::document::LinkedDocument;
 
 use super::schedule::{is_due, parse_time};
 

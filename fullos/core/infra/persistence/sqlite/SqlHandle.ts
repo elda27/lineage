@@ -1,5 +1,5 @@
 /**
- * `@tauri-apps/plugin-sql` の Database のうち、リポジトリ実装で必要な部分だけ。
+ * Rustのread-only query境界でリポジトリ実装が必要とする部分。
  *
  * 直接プラグインの型に依存しないので、テストでは差し替えられる。
  */
@@ -8,18 +8,12 @@ export interface SqlHandle {
 }
 
 /**
- * minos を一度も起動していないと DB にテーブルが無い。
- * 「まだ記録が無い」だけなので空一覧として扱う。
+ * Rust側で初期化後に問い合わせる。schema不整合は呼び出し元へ通知する。
  */
 export async function selectOrEmpty<T>(
   db: SqlHandle,
   query: string,
   bindValues: unknown[],
 ): Promise<T[]> {
-  try {
-    return await db.select<T[]>(query, bindValues);
-  } catch (error) {
-    if (String(error).includes("no such table")) return [];
-    throw error;
-  }
+  return db.select<T[]>(query, bindValues);
 }
