@@ -32,8 +32,9 @@ impl Settings {
         let mut settings = Self::default();
         for (key, value) in entries {
             if key == key::AUTO_PULL_FOREGROUND_TEXT {
-                settings.auto_pull_foreground_text = parse_bool(value)
-                    .with_context(|| format!("設定 {key} の値が不正です（true/false/1/0 が必要です）"))?;
+                settings.auto_pull_foreground_text = parse_bool(value).with_context(|| {
+                    format!("設定 {key} の値が不正です（true/false/1/0 が必要です）")
+                })?;
             }
         }
         Ok(settings)
@@ -75,7 +76,11 @@ mod tests {
             key::AUTO_PULL_FOREGROUND_TEXT.to_string(),
             "false".to_string(),
         )];
-        assert!(!Settings::from_entries(&entries).unwrap().auto_pull_foreground_text);
+        assert!(
+            !Settings::from_entries(&entries)
+                .unwrap()
+                .auto_pull_foreground_text
+        );
     }
 
     #[test]
@@ -86,7 +91,11 @@ mod tests {
         )];
         let error = Settings::from_entries(&entries).unwrap_err();
         assert!(error.to_string().contains(key::AUTO_PULL_FOREGROUND_TEXT));
-        assert!(Settings::from_entries(&[]).unwrap().auto_pull_foreground_text);
+        assert!(
+            Settings::from_entries(&[])
+                .unwrap()
+                .auto_pull_foreground_text
+        );
     }
 
     #[test]
