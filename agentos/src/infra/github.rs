@@ -37,7 +37,7 @@ impl GitHub {
             Err(std::env::VarError::NotPresent) => OsCredentialStore
                 .secret("github")?
                 .context("set LINEAGE_GITHUB_TOKEN or register credential --provider github")?,
-            Err(error) => return Err(error.into()),
+            Err(_) => anyhow::bail!("LINEAGE_GITHUB_TOKEN is not valid Unicode"),
         };
         Self::new("https://api.github.com".into(), token)
     }
