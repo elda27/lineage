@@ -43,7 +43,6 @@ impl Database {
         Self::from_connection(conn)
     }
 
-    #[cfg(any(test, feature = "testing"))]
     /// JSON read boundary for the desktop UI. Only SQLite read-only SELECT/WITH statements are accepted.
     pub fn select_json(
         &self,
@@ -100,6 +99,7 @@ impl Database {
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
 
+    #[cfg(any(test, feature = "testing"))]
     pub fn open_in_memory() -> Result<Self> {
         Self::from_connection(Connection::open_in_memory()?)
     }
