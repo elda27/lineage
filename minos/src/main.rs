@@ -94,10 +94,13 @@ fn main() {
     };
 
     let services = Services::new(database);
-    let settings = services.load_settings().unwrap_or_else(|error| {
-        log::warn!("設定を読み込めません（既定値で続行します）: {error:#}");
-        Settings::default()
-    });
+    let settings = match services.load_settings() {
+        Ok(settings) => settings,
+        Err(error) => {
+            log::error!("設定を読み込めません。保存済みの設定を確認してください: {error:#}");
+            std::process::exit(1);
+        }
+    };
     log::info!(
         "設定を読み込みました: auto_pull_foreground_text={}",
         settings.auto_pull_foreground_text
