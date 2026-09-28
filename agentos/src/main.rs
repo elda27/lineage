@@ -188,6 +188,21 @@ fn dispatch(cli: &Cli) -> Result<i32> {
 
     let session = Session::open(&cli.global)?;
     match &cli.command {
+        Command::Github(agentos::features::github::GitHubCommand::Actions(command)) => {
+            let path = match &cli.global.db {
+                Some(path) => path.clone(),
+                None => agentos::infra::storage::default_path()?,
+            }
+            .with_extension("github.sqlite");
+            let journal = agentos::infra::github_runs::RunJournal::open(&path)?;
+            session.print_json(&agentos::features::github_actions::execute(
+                &session.database,
+                &journal,
+                &session.workspace,
+                command,
+            )?)?;
+            Ok(0)
+        }
         Command::Github(command) => {
             session.print_json(&agentos::features::github::execute(
                 &session.database,

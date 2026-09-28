@@ -31,12 +31,17 @@ pub struct IssueInput {
 }
 impl GitHub {
     pub fn authenticated() -> Result<Self> {
-        let token = OsCredentialStore
-            .secret("github")?
-            .context("register GitHub credentials with credential set --provider github")?;
+        // Environment configuration is explicit; invalid values never fall back.
+        let token = match std::env::var("LINEAGE_GITHUB_TOKEN") {
+            Ok(token) => token,
+            Err(std::env::VarError::NotPresent) => OsCredentialStore
+                .secret("github")?
+                .context("set LINEAGE_GITHUB_TOKEN or register credential --provider github")?,
+            Err(error) => return Err(error.into()),
+        };
         Self::new("https://api.github.com".into(), token)
     }
-    fn new(base: String, token: String) -> Result<Self> {
+    pub(crate) fn new(base: String, token: String) -> Result<Self> {
         ensure!(!token.trim().is_empty(), "GitHub token is empty");
         Ok(Self {
             client: Client::builder()

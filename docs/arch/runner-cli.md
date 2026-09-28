@@ -34,3 +34,30 @@ GitHub tokenを `credential set --provider github` の標準入力へ登録す�
 書き込みの通信失敗は結果不明の可能性があるため自動再送しない。GitHub側の状態を確認してから再実行する。PRはIssueとして取り込まない。GitHub固有実装はRunner内に限定する。
 
 API契約: https://docs.github.com/en/rest/issues/issues
+
+## GitHub Actions
+
+Actions write/read権限のあるGitHub資格情報を利用する。Workflowはworkflow_dispatchに対応させる。
+
+`github actions dispatch --request-file request.json` の入力:
+
+```json
+{"execution_id":"unique-job-001","workspace":"local","note":"SOURCE_NOTE_ID","repo":"OWNER/REPO","workflow":"work.yml","git_ref":"main","inputs":{}}
+```
+
+inputsには秘密を入れず、Workflow側のGitHub Secretsを使用する。要求はRunnerの実行記録として保存される。
+
+- `github actions status --execution-id unique-job-001`: 正確なrun IDで状態を取得し、完了時に結果Noteと来歴を登録。
+- `github actions watch --execution-id unique-job-001 --timeout-seconds 600`: 5秒間隔で確認。タイムアウト後も再開可能。
+- `github actions record --execution-id unique-job-001 --result-file output.txt`: 完了済み実行に成果物のテキストを追加登録。同じ内容は同じNoteとなる。
+
+実行記録はNote DBと同じディレクトリの `lineage.github.sqlite`（--dbの拡張子をgithub.sqliteへ変更）でRunnerだけが管理する。再起動してもrun ID、元Noteの内容fingerprint、実行条件を維持する。このファイルもバックアップ対象とする。
+同じexecution_idの同じ要求は再dispatchせず既存結果を返す。異なる要求への再利用は拒否する。通信失敗やrun ID保存前の停止では結果不明として再dispatchしない。GitHubで実行状態を確認してから別execution_idで明示的に再実行する。
+
+成功・失敗・キャンセル等のconclusionはそのまま記録し、失敗を成功に変換しない。CLI自体の成功（終了コード0）はAPI操作・状態保存が成功したことを表すため、呼び出し側はconclusionを確認する。
+Workflowのバイナリartifactの自動ダウンロードは行わない。必要な出力をテキストとしてrecordへ渡す。FullOS・WebViewは不要。
+
+API契約: https://docs.github.com/en/rest/actions/workflows?apiVersion=2022-11-28
+`return_run_details: true` のworkflow_run_idを利用し、「最新のrun」から推測しない。
+
+ヘッドレス環境では `LINEAGE_GITHUB_TOKEN` 環境変数で明示的に資格情報を設定できる。設定済みで空・不正な場合は失敗し、OS資格情報へフォールバックしない。未設定時のみOS資格情報を使用する。
