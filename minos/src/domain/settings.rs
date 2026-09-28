@@ -3,6 +3,8 @@
 //! 保存形式は `settings(workspace_id, key, value)` の文字列だが、
 //! 「どのキーがあるか」「既定値は何か」「文字列をどう解釈するか」は方針なのでドメインに置く。
 
+use anyhow::{Context, Result};
+
 /// 設定キー。fullos からも同じキーを読む。
 pub mod key {
     /// Alt+Space で呼び出したとき、直前のアプリの選択テキストを自動で取り込むか。
@@ -25,17 +27,16 @@ impl Default for Settings {
 }
 
 impl Settings {
-    /// 保存済みの `(key, value)` から組み立てる。未知のキーと壊れた値は既定値で埋める。
-    pub fn from_entries(entries: &[(String, String)]) -> Self {
+    /// 保存済みの `(key, value)` から組み立てる。未保存のキーは既定値、既知キーの不正な値はエラーとする。
+    pub fn from_entries(entries: &[(String, String)]) -> Result<Self> {
         let mut settings = Self::default();
         for (key, value) in entries {
-            if key == key::AUTO_PULL_FOREGROUND_TEXT
-                && let Some(parsed) = parse_bool(value)
-            {
-                settings.auto_pull_foreground_text = parsed;
+            if key == key::AUTO_PULL_FOREGROUND_TEXT {
+                settings.auto_pull_foreground_text = parse_bool(value)
+                    .with_context(|| format!("設定 {key} の値が不正です（true/false/1/0 が必要です）"))?;
             }
         }
-        settings
+        Ok(settings)
     }
 
     /// 保存する `(key, value)` の一覧。
@@ -74,17 +75,18 @@ mod tests {
             key::AUTO_PULL_FOREGROUND_TEXT.to_string(),
             "false".to_string(),
         )];
-        assert!(!Settings::from_entries(&entries).auto_pull_foreground_text);
+        assert!(!Settings::from_entries(&entries).unwrap().auto_pull_foreground_text);
     }
 
     #[test]
-    fn falls_back_to_the_default_for_unusable_values() {
+    fn rejects_invalid_stored_values() {
         let entries = vec![(
             key::AUTO_PULL_FOREGROUND_TEXT.to_string(),
             "maybe".to_string(),
         )];
-        assert!(Settings::from_entries(&entries).auto_pull_foreground_text);
-        assert!(Settings::from_entries(&[]).auto_pull_foreground_text);
+        let error = Settings::from_entries(&entries).unwrap_err();
+        assert!(error.to_string().contains(key::AUTO_PULL_FOREGROUND_TEXT));
+        assert!(Settings::from_entries(&[]).unwrap().auto_pull_foreground_text);
     }
 
     #[test]
@@ -97,6 +99,6 @@ mod tests {
             .into_iter()
             .map(|(key, value)| (key.to_string(), value))
             .collect();
-        assert_eq!(Settings::from_entries(&entries), settings);
+        assert_eq!(Settings::from_entries(&entries).unwrap(), settings);
     }
 }
