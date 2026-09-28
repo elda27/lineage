@@ -48,4 +48,6 @@ jobs:
         run: cargo check -p minos --all-targets --locked
 
       - name: Check FullOS native Rust boundary
+        env:
+          TAURI_CONFIG: '{"bundle":{"resources":[]}}'
         run: cargo check --manifest-path fullos/src-tauri/Cargo.toml --locked
