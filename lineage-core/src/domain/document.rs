@@ -29,3 +29,18 @@ pub struct DocumentSnapshot {
     pub metas: Vec<MetaAssignment>,
     pub created_at: String,
 }
+
+use crate::domain::lineage::LineageInput;
+use anyhow::{Result, ensure};
+
+pub fn validate_lineage_target(document: &DocumentAsset, lineage: &LineageInput) -> Result<()> {
+    ensure!(
+        lineage.workspace_id == document.workspace_id,
+        "記録と lineage の workspace が一致しません"
+    );
+    ensure!(
+        lineage.target_kind == "document" && lineage.target_id == document.id,
+        "記録と lineage の target が一致しません"
+    );
+    Ok(())
+}

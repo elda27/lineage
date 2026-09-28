@@ -125,3 +125,13 @@ Structured State repository、ContentStore、Sync port は別 interface とし�
 - [Issue #28](https://github.com/elda27/lineage/issues/28)
 - [ADR-0004](./0004-rust-owned-fullos-delta-mutations.md)
 - [Architecture boundaries, storage and sync design](../design-doc/2026-08-20-architecture-boundaries-storage-and-sync.md)
+
+## 2026-09-28 追補（Issue #52）
+
+ユーザー指示により、lineage-coreは共有ドメインモデル・不変条件・純粋なルールに限定する。
+保存ユースケース、repository/transaction port、SQLite、時計・ID取得の実装はlineage-storeへ分離する。
+既存の「core内の保存use case」という配置はこの追補で置き換える。
+依存はlineage-store → lineage-coreの一方向。coreはlineage-storeを参照しない。
+共通の保存transactionとrollbackを維持し、アプリごとに複製しない。
+補完順位はcore、候補取得・カーソル位置・入力確定はアプリが所有する。
+この配置変更はschema migration、content/sync実装の完了を意味しない。

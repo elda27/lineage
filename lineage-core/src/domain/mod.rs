@@ -4,6 +4,5 @@ pub mod document;
 pub mod lineage;
 pub mod meta;
 pub mod mutation;
-pub mod ports;
 pub mod shared;
 pub mod tag;

@@ -20,12 +20,13 @@ use lineage_core::domain::automation::{
 };
 use lineage_core::domain::document::DocumentAsset;
 use lineage_core::domain::lineage::{LineageInput, relation};
-use lineage_core::domain::ports::{
+use lineage_core::domain::shared::Hasher;
+use lineage_store::ports::{
     AutomationRuleQuery, AutomationRunStore, AutomationStore, DocumentQuery,
 };
-use lineage_core::domain::shared::{Clock, Hasher, IdGenerator};
+use lineage_store::ports::{Clock, IdGenerator};
 
-use lineage_core::features::document::{CommitAutomationResult, LinkedDocument};
+use lineage_store::features::document::{CommitAutomationResult, LinkedDocument};
 
 use super::schedule::{is_due, parse_time};
 
@@ -315,7 +316,7 @@ mod tests {
     use lineage_core::domain::automation::{MetaCondition, Trigger};
     use lineage_core::domain::lineage::{LineageLedger, VerifyResult};
     use lineage_core::domain::meta::MetaAssignment;
-    use lineage_core::domain::ports::LineageQuery;
+    use lineage_store::ports::LineageQuery;
 
     #[test]
     fn a_successful_run_stores_the_result_and_extends_the_chain() {

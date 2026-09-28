@@ -86,6 +86,7 @@ setCargoVersion("fullos/src-tauri/Cargo.toml");
 setCargoVersion("minos/Cargo.toml");
 setCargoVersion("agentos/Cargo.toml");
 setCargoVersion("lineage-core/Cargo.toml");
+setCargoVersion("lineage-store/Cargo.toml");
 
 if (changes.length) {
   console.error(`version ${version} is not synchronized: ${changes.join(", ")}`);

@@ -2,7 +2,7 @@
 
 use sha2::{Digest, Sha256};
 
-use crate::domain::shared::Hasher;
+use lineage_core::domain::shared::Hasher;
 
 /// SHA-256（16進小文字）。
 ///

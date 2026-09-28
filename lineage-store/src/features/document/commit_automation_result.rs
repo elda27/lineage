@@ -1,11 +1,13 @@
 //! 結果記録・lineage・実行状態の確定境界。実行・プロンプト生成は Runner が所有する。
 
-use super::{LinkedDocument, save_document::validate_target};
-use crate::domain::automation::{AutomationRun, RunStatus};
-use crate::domain::lineage::LineageLedger;
-use crate::domain::ports::{AutomationStore, AutomationTx};
-use crate::domain::shared::{Hasher, IdGenerator};
+use super::LinkedDocument;
+use crate::ports::IdGenerator;
+use crate::ports::{AutomationStore, AutomationTx};
 use anyhow::{Result, ensure};
+use lineage_core::domain::automation::{AutomationRun, RunStatus};
+use lineage_core::domain::document::validate_lineage_target;
+use lineage_core::domain::lineage::LineageLedger;
+use lineage_core::domain::shared::Hasher;
 
 pub struct CommitAutomationResult<'a> {
     pub store: &'a dyn AutomationStore,
@@ -18,7 +20,7 @@ impl CommitAutomationResult<'_> {
         ensure!(run.finished_at.is_some(), "完了時刻が必要です");
         match (&run.status, &result) {
             (RunStatus::Succeeded, Some(result)) => {
-                validate_target(&result.document, &result.lineage)?;
+                validate_lineage_target(&result.document, &result.lineage)?;
                 ensure!(
                     result.document.workspace_id == run.workspace_id
                         && run.result_document_id.as_deref() == Some(result.document.id.as_str())

@@ -34,7 +34,7 @@ concrete infrastructure を生成したり、アプリ固有処理が共有層�
 
 ## Decision
 
-各アプリケーションと共有 kernel は、コードの性質に応じて次の top-level responsibility を持つ。
+各アプリケーションは、コードの性質に応じて次の top-level responsibility を持つ。共有kernelの例外は下記の追補を参照する。
 
 ```text
 domain/
@@ -114,3 +114,13 @@ ownership が分裂するためである。
 - [Issue #23](https://github.com/elda27/lineage/issues/23)
 - [Architecture boundaries, storage and sync design](../design-doc/2026-08-20-architecture-boundaries-storage-and-sync.md)
 - [ADR-0004](./0004-rust-owned-fullos-delta-mutations.md)
+
+## 2026-09-28 追補（Issue #52）
+
+ユーザー指示により、lineage-coreは共有ドメインモデル・不変条件・純粋なルールに限定する。
+保存ユースケース、repository/transaction port、SQLite、時計・ID取得の実装はlineage-storeへ分離する。
+既存の「core内の保存use case」という配置はこの追補で置き換える。
+依存はlineage-store → lineage-coreの一方向。coreはlineage-storeを参照しない。
+共通の保存transactionとrollbackを維持し、アプリごとに複製しない。
+補完順位はcore、候補取得・カーソル位置・入力確定はアプリが所有する。
+この配置変更はschema migration、content/sync実装の完了を意味しない。

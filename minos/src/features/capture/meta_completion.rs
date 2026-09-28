@@ -14,7 +14,8 @@ use lsp_types::{
     Range as LspRange, TextEdit,
 };
 
-use lineage_core::domain::meta::{MatchKind, find_active_tag_token};
+use crate::features::capture::tag_input::find_active_tag_token;
+use lineage_core::domain::meta::MatchKind;
 
 use crate::app::Services;
 

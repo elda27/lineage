@@ -5,14 +5,16 @@
 
 use anyhow::Result;
 
+use crate::domain::note::auto_label;
 use crate::domain::note::{CaptureContext, ImageAttachment, Note};
 use lineage_core::domain::lineage::{LineageInput, relation};
-use lineage_core::domain::meta::{MetaAssignment, MetaSource, auto_label, parse_meta_tags};
-use lineage_core::domain::ports::DocumentStore;
-use lineage_core::domain::shared::{Clock, Hasher, IdGenerator};
-use lineage_core::features::document::{
+use lineage_core::domain::meta::{MetaAssignment, MetaSource, parse_meta_tags};
+use lineage_core::domain::shared::Hasher;
+use lineage_store::features::document::{
     LinkedDocument, SaveDocument, SaveDocumentInput, WriteMode,
 };
+use lineage_store::ports::DocumentStore;
+use lineage_store::ports::{Clock, IdGenerator};
 
 /// ローカル利用（単一利用者）の actor。クラウド接続では JWT の sub が入る。
 pub const LOCAL_ACTOR: &str = "local";
@@ -185,10 +187,10 @@ fn collect_metas(body: &str, confirmed: &[MetaAssignment]) -> Vec<MetaAssignment
 mod tests {
     use super::*;
     use lineage_core::domain::lineage::{LineageLedger, VerifyResult};
-    use lineage_core::domain::ports::DocumentQuery;
-    use lineage_core::infra::clock::{FixedClock, SequentialIds};
-    use lineage_core::infra::crypto::Sha256Hasher;
-    use lineage_core::infra::sqlite::Database;
+    use lineage_store::infra::clock::{FixedClock, SequentialIds};
+    use lineage_store::infra::crypto::Sha256Hasher;
+    use lineage_store::infra::sqlite::Database;
+    use lineage_store::ports::DocumentQuery;
 
     struct Fixture {
         db: Database,
@@ -289,7 +291,7 @@ mod tests {
         assert_eq!(second.seq, 2);
         assert_ne!(first.content_hash, second.content_hash);
 
-        let records = lineage_core::domain::ports::LineageQuery::list(&f.db, "ws").unwrap();
+        let records = lineage_store::ports::LineageQuery::list(&f.db, "ws").unwrap();
         assert_eq!(records[1].prev_hash, records[0].content_hash);
         assert_eq!(
             LineageLedger::new(&f.hasher).verify(&records),
@@ -315,7 +317,7 @@ mod tests {
             })
             .unwrap();
 
-        let records = lineage_core::domain::ports::LineageQuery::list(&f.db, "ws").unwrap();
+        let records = lineage_store::ports::LineageQuery::list(&f.db, "ws").unwrap();
         assert_eq!(out.seq, 2);
         assert_eq!(records[1].relation_type, relation::ATTACHMENT_FOR);
         assert_eq!(records[1].target_id, out.document_id);
@@ -361,7 +363,7 @@ mod tests {
         f.capture("#タスク B", None);
         f.capture("#投資 C", None);
 
-        let tags = lineage_core::domain::ports::MetaTagQuery::all(&f.db, "ws", 100).unwrap();
+        let tags = lineage_store::ports::MetaTagQuery::all(&f.db, "ws", 100).unwrap();
         let task = tags.iter().find(|t| t.label == "タスク").unwrap();
         assert_eq!(task.usage_count, 2);
         assert_eq!(task.last_used_at.as_deref(), Some("2026-08-08T12:00:00Z"));

@@ -28,7 +28,7 @@ serde_json = "1"
 base64 = "0.22"
 
 # 自動化の実行は同梱の agentos.exe に任せる（src/automation.rs）。
-# lineage-core を直接リンクしないのは、rusqlite と tauri-plugin-sql(sqlx) が
+# lineage-store を直接リンクしないのは、rusqlite と tauri-plugin-sql(sqlx) が
 # どちらも native の sqlite3 をリンクしていて衝突するため。1プロセスに sqlite の
 # スタックを2つ抱えるのも避けたいので、実行エンジンは別プロセスに分けている。
 

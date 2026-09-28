@@ -6,6 +6,7 @@ description = "Lineage の自動化を実行する CUI。常駐せず、状態�
 
 [dependencies]
 lineage-core = { path = "../lineage-core" }
+lineage-store = { path = "../lineage-store" }
 anyhow = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -32,4 +33,4 @@ dirs = { workspace = true }
 
 [dev-dependencies]
 rusqlite = { workspace = true }
-lineage-core = { path = "../lineage-core", features = ["testing"] }
+lineage-store = { path = "../lineage-store", features = ["testing"] }

@@ -2,7 +2,7 @@
 //!
 //! FullOS の WebView に SQL の `execute` 権限を与えず、更新リクエストを同梱の
 //! agentos へ標準入力で渡す。実際の DB 更新とドメイン検証は agentos から呼ばれる
-//! lineage-core の application service が行う。
+//! lineage-store の application service が行う。
 
 use std::sync::Mutex;
 
@@ -11,7 +11,7 @@ use tauri::AppHandle;
 
 /// FullOS 内から同時に複数の writer sidecar を起動しない。
 ///
-/// lineage-core 側も `BEGIN IMMEDIATE` と busy timeout で別プロセスとの競合を待つが、
+/// lineage-store 側も `BEGIN IMMEDIATE` と busy timeout で別プロセスとの競合を待つが、
 /// 同一 UI 内の連打や終了時処理はここで先に直列化して余計なプロセスを増やさない。
 static LOCAL_MUTATION_LOCK: Mutex<()> = Mutex::new(());
 

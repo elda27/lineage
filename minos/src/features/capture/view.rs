@@ -25,8 +25,9 @@ use gpui_component::input::{Backspace, Escape, Input, InputEvent, InputState};
 use gpui_component::{ActiveTheme, Sizable, StyledExt, h_flex, v_flex};
 
 use crate::domain::note::CaptureContext;
+use crate::features::capture::tag_input::split_completed_tags;
 use lineage_core::domain::document::DocumentSnapshot;
-use lineage_core::domain::meta::{MetaAssignment, MetaSource, split_completed_tags};
+use lineage_core::domain::meta::{MetaAssignment, MetaSource};
 
 use crate::app::Services;
 use crate::features::capture::meta_completion::{MetaCompletionProvider, selected_memo_id};

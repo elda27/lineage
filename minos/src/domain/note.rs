@@ -146,3 +146,11 @@ mod tests {
         assert_eq!(metas[1].key, "window");
     }
 }
+
+/// 自動付与するメタ情報のラベル。
+pub mod auto_label {
+    /// 直前に開いていたアプリケーションの実行ファイル名。
+    pub const APP: &str = "app";
+    /// 直前に開いていたウィンドウのタイトル。
+    pub const WINDOW: &str = "window";
+}

@@ -1,6 +1,6 @@
 # Rust 側のワークスペース。
 #
-# lineage-core は共有記録・保存・整合性を所有する。
+# lineage-core は共有ドメイン、lineage-store は保存とI/Oを所有する。
 # 入力/設定は Minos、自動化実行は AgentOS の domain/features/infra に置く。
 #
 # fullos/src-tauri は除外する。tauri のビルドが自分の target/ を前提に
@@ -8,7 +8,7 @@
 # lineage-core へはパス依存で参照するので、除外していても共有はできる。
 [workspace]
 resolver = "2"
-members = ["lineage-core", "minos", "agentos"]
+members = ["lineage-core", "lineage-store", "minos", "agentos"]
 exclude = ["fullos/src-tauri"]
 
 # 3クレートで共有する依存はここでバージョンを決める。

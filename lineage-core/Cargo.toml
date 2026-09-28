@@ -2,21 +2,12 @@
 name = "lineage-core"
 version = "0.0.8"
 edition = "2024"
-description = "Lineage の中核。共有記録の契約・保存・整合性を保証する。"
+description = "Lineage の共有ドメインモデルと不変条件。"
 
 [dependencies]
 anyhow = { workspace = true }
-chrono = { workspace = true }
-rusqlite = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-sha2 = { workspace = true }
-uuid = { workspace = true }
-
-[features]
-# テスト用の差し替え実装（FixedClock / SequentialIds / in-memory DB など）を公開する。
-# 利用側は dev-dependencies でこの feature を有効にする。
-testing = []
 
 [dev-dependencies]
-rustfmt = "0.10.0"
+sha2 = { workspace = true }

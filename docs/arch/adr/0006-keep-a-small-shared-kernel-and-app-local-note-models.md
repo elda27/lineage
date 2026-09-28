@@ -62,7 +62,7 @@ record contract と不変条件だけを持つ。次の知識は Shared Kernel �
 
 各アプリは app-local Note を canonical `DocumentAsset` へ明示的に map する。title derivation や
 context metadata の生成は Minos feature/domain service が行い、完成した canonical input を
-Shared Kernel の保存 use case へ渡す。
+core外の共有保存層（lineage-store）の use case へ渡す。
 
 `capture` は入力行為を表す feature/use case 名として Minos 内に残せるが、Shared Kernel の entity
 または domain module 名には使用しない。
@@ -109,3 +109,13 @@ Shared Kernel の保存 use case へ渡す。
 - [Issue #23](https://github.com/elda27/lineage/issues/23)
 - [ADR-0003](./0003-share-capture-and-editing-completion-contract.md)
 - [Architecture boundaries, storage and sync design](../design-doc/2026-08-20-architecture-boundaries-storage-and-sync.md)
+
+## 2026-09-28 追補（Issue #52）
+
+ユーザー指示により、lineage-coreは共有ドメインモデル・不変条件・純粋なルールに限定する。
+保存ユースケース、repository/transaction port、SQLite、時計・ID取得の実装はlineage-storeへ分離する。
+既存の「core内の保存use case」という配置はこの追補で置き換える。
+依存はlineage-store → lineage-coreの一方向。coreはlineage-storeを参照しない。
+共通の保存transactionとrollbackを維持し、アプリごとに複製しない。
+補完順位はcore、候補取得・カーソル位置・入力確定はアプリが所有する。
+この配置変更はschema migration、content/sync実装の完了を意味しない。

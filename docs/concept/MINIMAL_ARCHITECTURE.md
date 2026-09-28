@@ -68,44 +68,20 @@ Tauri アプリも Web ビルドも、ローカル接続とクラウド接続の
 
 2. DDD を意図したフォルダ構成
 
-2026-09-07: Issue #47でコード配置を整理した。設計判断はADR-0005・ADR-0007、
-実装範囲と後続作業は [architecture overview](../arch/README.md) を参照する。
+2026-09-28: 実装の正本は [architecture overview](../arch/README.md) とaccepted ADRを参照する。
 
-| 配置 | 責務 |
-| --- | --- |
-| `lineage-core/src/domain/` | 共有ドメイン、port、不変条件 |
-| `lineage-core/src/features/` | automation / capture / lineage / meta / mutation / settings のユースケース |
-| `lineage-core/src/infra/` | SQLite、provider、OS credential等の実装 |
-| `minos/src/app.rs` | Minosのcomposition root |
-| `minos/src/features/` | Minosの入力UI |
-| `agentos/src/main.rs` | AgentOSのCLIとcomposition root |
-| `fullos/src/app/` | React shell、navigationと画面をまたぐ状態 |
-| `fullos/src/pages/` | Home / Search / Settings / Automation / Tag Explorerの画面 |
-| `fullos/src/components/base/` | Icon、Toggle、共通Tailwindクラス |
-| `fullos/src/components/containers/` | 複数の設定画面部品から使うSettingRow |
-| `fullos/src/features/<機能>/components/` | 各機能のUI部品 |
-| `fullos/src/features/<機能>/service/` | hookと表示用モデル |
-| `fullos/src/shared/api/` | ApplicationPortと接続モード別実装 |
-| `fullos/core/domain/` | FullOSのドメイン型とport |
-| `fullos/core/features/` | ListMemos / SuggestMetaTags / SyncAgentSkills等 |
-| `fullos/core/infra/` | portの具体実装 |
-| `fullos/src-tauri/` | Tauriの起動とOS連携 |
+- `lineage-core/src/domain`: 共有モデル・不変条件・純粋な補完/lineage/mutationルール。
+- `lineage-store/src/features`: 共有保存・検証のユースケース。
+- `lineage-store/src/ports`: repository・transaction・clock・ID取得の契約。
+- `lineage-store/src/infra`: SQLite・時計・UUID・SHA-256の実装。
+- `minos/src/domain` / `features` / `infra`: 入力・設定・補完UI・OS連携。
+- `agentos/src/domain` / `features` / `infra`: 自動化実行・推論・資格情報。
+- FullOSのUIは`src/pages`、`src/components`、`src/features`、ドメインとadapterは`core`に配置。
 
-`app` は起動・組み立てに使い、ユースケース層は `features` と呼ぶ。
-Rustの呼び出しは `lineage_core::features::<機能>::<ユースケース>` を用いる。
-`mutation` のような単一ファイルの機能は `lineage_core::features::mutation::ApplyMutation` とする。
-
-TypeScriptのimport aliasは `@core/*` が `fullos/core/*`、`@/*` が `fullos/src/*`。
-`tsconfig.json` と `vite.config.ts` の対応を揃える。画面はfeature部品とserviceを利用し、
-汎用部品は特定のdomainやfeatureに依存しない。
-
-この段階ではファイル配置と参照のみを変更する。Minos/AgentOSの追加分割、Shared Kernelの縮小、
-FullOS coreのsrc配下への統合、依存注入の再設計、themeの変更は親Issue #22の後続作業である。
-
-fullos が lineage-core を直接リンクしないのは、tauri-plugin-sql(sqlx) と
-rusqlite がどちらも native の sqlite3 をリンクしていて同居できないため。
-`links` への追記は minos と agentos の2か所に集約し、どちらも同じ lineage-core の
-コードを通す（4章の不変条件を保つ）。
+アプリ → lineage-store → lineage-coreの依存を守る。保存を伴う呼び出しは
+`lineage_store::features`を使用する。coreにfeatures/infraを戻さない。
+FullOSはrusqlite/sqlxのnative sqlite3競合を避けてRunner経由で書き込む。
+以下のクラウド・単一schemaの説明は初期設計の記録であり、将来方針はADR-0009を優先する。
 
 fullos の webview は plugin-sql で読み出す。書き込みは SQL を直接実行せず、Rust 側の
 差分 mutation API（Tauri command）を `invoke` して行う。Rust API は entity 全体を

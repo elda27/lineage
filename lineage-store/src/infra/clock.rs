@@ -5,7 +5,7 @@ use std::cell::Cell;
 
 use chrono::SecondsFormat;
 
-use crate::domain::shared::{Clock, IdGenerator};
+use crate::ports::{Clock, IdGenerator};
 
 /// システム時刻（UTC, RFC3339 秒精度）。
 pub struct SystemClock;

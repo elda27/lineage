@@ -5,6 +5,8 @@
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+use anyhow::{Result, ensure};
+
 use crate::domain::automation::{BackendConfig, BackendKind, Trigger, TriggerKind};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -314,4 +316,141 @@ mod tests {
         assert_eq!(value["recordedAt"], "2026-08-25T00:00:00Z");
         assert!(value.get("recorded_at").is_none());
     }
+}
+
+impl MutationRequest {
+    /// 入力契約を検証し、冪等キーから未指定のルールIDを確定する。
+    pub fn prepare(&mut self) -> anyhow::Result<()> {
+        ensure!(
+            !self.operation_id.trim().is_empty(),
+            "operationId は空にできません"
+        );
+        ensure!(
+            !self.workspace_id.trim().is_empty(),
+            "workspaceId は空にできません"
+        );
+        if let Some(revision) = self.base_revision {
+            ensure!(revision >= 0, "baseRevision は0以上で指定してください");
+        }
+
+        let operation_id = self.operation_id.clone();
+        if let MutationOperation::AutomationRuleCreate { rule_id, .. } = &mut self.operation {
+            if rule_id.as_deref().is_none_or(str::is_empty) {
+                // retry でも同じ entity ID になるよう、冪等キーから決定的に導出する。
+                // transport が ruleId を発行する必要はなく、ID の決定権は Rust 側に残る。
+                *rule_id = Some(operation_id);
+            }
+        }
+
+        validate_operation(&self.operation)?;
+        Ok(())
+    }
+}
+
+fn validate_operation(operation: &MutationOperation) -> Result<()> {
+    match operation {
+        MutationOperation::MemoStatePatch { memo_id, patch } => {
+            non_empty_id("memoId", memo_id)?;
+            ensure!(!patch.is_empty(), "memo state patch が空です");
+        }
+        MutationOperation::ArchiveCompletedTasks { labels } => {
+            ensure!(!labels.is_empty(), "labels は1件以上必要です");
+            ensure!(
+                labels.iter().all(|label| !label.trim().is_empty()),
+                "labels に空文字は指定できません"
+            );
+        }
+        MutationOperation::TagPatch { tag_id, patch } => {
+            non_empty_id("tagId", tag_id)?;
+            validate_tag_patch(patch)?;
+        }
+        MutationOperation::TagDelete { tag_id } => non_empty_id("tagId", tag_id)?,
+        MutationOperation::AutomationRuleCreate { rule_id, input } => {
+            non_empty_id("ruleId", rule_id.as_deref().unwrap_or_default())?;
+            validate_rule_input(input)?;
+        }
+        MutationOperation::AutomationRulePatch { rule_id, patch } => {
+            non_empty_id("ruleId", rule_id)?;
+            validate_rule_patch(patch)?;
+        }
+        MutationOperation::AutomationRuleDelete { rule_id } => non_empty_id("ruleId", rule_id)?,
+        MutationOperation::SettingSet { key, .. } => non_empty_id("key", key)?,
+    }
+    Ok(())
+}
+
+fn validate_tag_patch(patch: &TagPatch) -> Result<()> {
+    ensure!(!patch.is_empty(), "tag patch が空です");
+    if let Some(display_name) = &patch.display_name {
+        ensure!(
+            !display_name.trim().is_empty(),
+            "displayName は空にできません"
+        );
+    }
+    if let NullablePatch::Set(view) = &patch.view {
+        ensure!(
+            !view.trim().is_empty(),
+            "view は空文字ではなく null で解除してください"
+        );
+    }
+    if let NullablePatch::Set(recipe) = &patch.recipe {
+        ensure!(
+            !recipe.name.trim().is_empty(),
+            "recipe.name は空文字ではなく null で解除してください"
+        );
+    }
+    Ok(())
+}
+
+fn validate_rule_input(input: &AutomationRuleInput) -> Result<()> {
+    ensure!(!input.name.trim().is_empty(), "name は空にできません");
+    ensure!(!input.prompt.trim().is_empty(), "prompt は空にできません");
+    ensure!(
+        !input.backend_config.provider.trim().is_empty(),
+        "backendConfig.provider は空にできません"
+    );
+    if input.trigger_kind == TriggerKind::Schedule {
+        ensure!(
+            input
+                .trigger
+                .cron
+                .as_deref()
+                .is_some_and(|cron| !cron.trim().is_empty()),
+            "schedule には trigger.cron が必要です"
+        );
+    }
+    Ok(())
+}
+
+fn validate_rule_patch(patch: &AutomationRulePatch) -> Result<()> {
+    ensure!(!patch.is_empty(), "automation rule patch が空です");
+    if let Some(name) = &patch.name {
+        ensure!(!name.trim().is_empty(), "name は空にできません");
+    }
+    if let Some(prompt) = &patch.prompt {
+        ensure!(!prompt.trim().is_empty(), "prompt は空にできません");
+    }
+    if let Some(config) = &patch.backend_config {
+        ensure!(
+            !config.provider.trim().is_empty(),
+            "backendConfig.provider は空にできません"
+        );
+    }
+    if patch.trigger_kind == Some(TriggerKind::Schedule)
+        && let Some(trigger) = &patch.trigger
+    {
+        ensure!(
+            trigger
+                .cron
+                .as_deref()
+                .is_some_and(|cron| !cron.trim().is_empty()),
+            "schedule には trigger.cron が必要です"
+        );
+    }
+    Ok(())
+}
+
+fn non_empty_id(name: &str, value: &str) -> Result<()> {
+    ensure!(!value.trim().is_empty(), "{name} は空にできません");
+    Ok(())
 }

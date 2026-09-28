@@ -1,11 +1,12 @@
 //! 入力 UI の規則を持たず、記録・タグ・観測メタデータ・添付・lineage を一括保存する。
 
-use crate::domain::document::DocumentAsset;
-use crate::domain::lineage::{LineageInput, LineageLedger, relation};
-use crate::domain::meta::{DocumentMetadata, MetaAssignment};
-use crate::domain::ports::{DocumentStore, DocumentTx};
-use crate::domain::shared::{Hasher, IdGenerator};
+use crate::ports::IdGenerator;
+use crate::ports::{DocumentStore, DocumentTx};
 use anyhow::{Result, ensure};
+use lineage_core::domain::document::{DocumentAsset, validate_lineage_target};
+use lineage_core::domain::lineage::{LineageInput, LineageLedger, relation};
+use lineage_core::domain::meta::{DocumentMetadata, MetaAssignment};
+use lineage_core::domain::shared::Hasher;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WriteMode {
@@ -51,9 +52,9 @@ impl<'a> SaveDocument<'a> {
 
     pub fn execute(&self, input: SaveDocumentInput) -> Result<SaveDocumentOutput> {
         let document = &input.document;
-        validate_target(document, &input.lineage)?;
+        validate_lineage_target(document, &input.lineage)?;
         for attachment in &input.attachments {
-            validate_target(document, &attachment.lineage)?;
+            validate_lineage_target(document, &attachment.lineage)?;
             ensure!(
                 attachment.document.workspace_id == document.workspace_id,
                 "添付記録の workspace が一致しません"
@@ -102,16 +103,4 @@ impl<'a> SaveDocument<'a> {
         })?;
         appended.ok_or_else(|| anyhow::anyhow!("lineage が追記されませんでした"))
     }
-}
-
-pub(super) fn validate_target(document: &DocumentAsset, lineage: &LineageInput) -> Result<()> {
-    ensure!(
-        lineage.workspace_id == document.workspace_id,
-        "記録と lineage の workspace が一致しません"
-    );
-    ensure!(
-        lineage.target_kind == "document" && lineage.target_id == document.id,
-        "記録と lineage の target が一致しません"
-    );
-    Ok(())
 }

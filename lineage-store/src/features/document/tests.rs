@@ -1,12 +1,12 @@
 use super::*;
-use crate::domain::automation::{AutomationRun, BackendKind, RunStatus};
-use crate::domain::document::DocumentAsset;
-use crate::domain::lineage::{LineageInput, LineageLedger, VerifyResult};
-use crate::domain::meta::{DocumentMetadata, MetaAssignment};
-use crate::domain::ports::{AutomationRunStore, DocumentQuery, LineageQuery};
 use crate::infra::clock::SequentialIds;
 use crate::infra::crypto::Sha256Hasher;
 use crate::infra::sqlite::Database;
+use crate::ports::{AutomationRunStore, DocumentQuery, LineageQuery};
+use lineage_core::domain::automation::{AutomationRun, BackendKind, RunStatus};
+use lineage_core::domain::document::DocumentAsset;
+use lineage_core::domain::lineage::{LineageInput, LineageLedger, VerifyResult};
+use lineage_core::domain::meta::{DocumentMetadata, MetaAssignment};
 
 const NOW: &str = "2026-09-13T00:00:00Z";
 

@@ -15,6 +15,7 @@ required-features = ["desktop"]
 [dependencies]
 # 共有記録の保存境界。入力・設定の解釈は Minos が所有する。
 lineage-core = { path = "../lineage-core" }
+lineage-store = { path = "../lineage-store" }
 
 # gpui = "0.2.2"
 # gpui-component = "0.5.1"
@@ -36,7 +37,7 @@ uuid = { workspace = true }
 
 [dev-dependencies]
 # テスト用の差し替え実装（FixedClock など）を使えるようにする。
-lineage-core = { path = "../lineage-core", features = ["testing"] }
+lineage-store = { path = "../lineage-store", features = ["testing"] }
 
 [target.'cfg(windows)'.dependencies]
 windows = { optional = true, version = "0.62", features = [

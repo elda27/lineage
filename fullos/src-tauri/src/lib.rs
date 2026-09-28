@@ -23,7 +23,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         // 記録の読み出しは webview 側（core/infra/persistence/sqlite）が行う。
         // plugin-sql は select 専用で、書き込みは mutation コマンドから agentos を
-        // 経由して Rust 側の lineage-core application service に渡す。
+        // 経由して Rust 側の lineage-store application service に渡す。
         //
         // ただし自動化だけは例外で、lineage(links) への追記を伴うため同梱の agentos に
         // 委ねる（automation.rs）。webview から書けてしまうと、hash-chain の作り方が
