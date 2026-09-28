@@ -61,6 +61,9 @@ struct Global {
 
 #[derive(Subcommand)]
 enum Command {
+    /// GitHub連携。
+    #[command(subcommand)]
+    Github(agentos::features::github::GitHubCommand),
     /// JSONからNoteを作成／更新する。id指定時は既存Noteを更新する。
     Put {
         #[arg(long)]
@@ -185,6 +188,14 @@ fn dispatch(cli: &Cli) -> Result<i32> {
 
     let session = Session::open(&cli.global)?;
     match &cli.command {
+        Command::Github(command) => {
+            session.print_json(&agentos::features::github::execute(
+                &session.database,
+                &session.workspace,
+                command,
+            )?)?;
+            Ok(0)
+        }
         Command::Put { request_file } => {
             let input = serde_json::from_str(&read_result(request_file)?)?;
             let id = agentos::features::notes::put(&session.database, &session.workspace, input)?;
