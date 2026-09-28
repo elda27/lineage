@@ -31,6 +31,7 @@ cron = "0.15"
 chrono = { workspace = true }
 dirs = { workspace = true }
 
-[dev-dependencies]
 rusqlite = { workspace = true }
+
+[dev-dependencies]
 lineage-store = { path = "../lineage-store", features = ["testing"] }

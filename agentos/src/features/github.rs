@@ -20,6 +20,8 @@ use lineage_store::{
 #[derive(Subcommand)]
 pub enum GitHubCommand {
     #[command(subcommand)]
+    Actions(super::github_actions::ActionsCommand),
+    #[command(subcommand)]
     Issue(IssueCommand),
 }
 #[derive(Subcommand)]
@@ -62,6 +64,7 @@ pub fn execute(
 ) -> Result<serde_json::Value> {
     let api = GitHub::authenticated()?;
     match command {
+        GitHubCommand::Actions(_) => anyhow::bail!("Actions requires a Runner journal"),
         GitHubCommand::Issue(command) => match command {
             IssueCommand::Get { repo, number } => {
                 Ok(serde_json::to_value(api.issue(repo, *number)?)?)
