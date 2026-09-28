@@ -4,9 +4,9 @@
 
 use anyhow::Result;
 
-use crate::domain::lineage::{LineageLedger, VerifyResult};
-use crate::domain::ports::LineageQuery;
-use crate::domain::shared::Hasher;
+use crate::ports::LineageQuery;
+use lineage_core::domain::lineage::{LineageLedger, VerifyResult};
+use lineage_core::domain::shared::Hasher;
 
 pub struct VerifyLineage<'a> {
     lineage: &'a dyn LineageQuery,
@@ -27,14 +27,14 @@ impl<'a> VerifyLineage<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::document::DocumentAsset;
-    use crate::domain::lineage::BrokenReason;
-    use crate::domain::lineage::LineageInput;
-    use crate::domain::shared::{Clock, IdGenerator};
     use crate::features::document::{SaveDocument, SaveDocumentInput, WriteMode};
     use crate::infra::clock::{FixedClock, SequentialIds};
     use crate::infra::crypto::Sha256Hasher;
     use crate::infra::sqlite::Database;
+    use crate::ports::{Clock, IdGenerator};
+    use lineage_core::domain::document::DocumentAsset;
+    use lineage_core::domain::lineage::BrokenReason;
+    use lineage_core::domain::lineage::LineageInput;
 
     #[test]
     fn detects_a_tampered_ledger() {

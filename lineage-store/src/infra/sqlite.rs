@@ -9,21 +9,21 @@ use std::path::Path;
 use anyhow::{Context, Result, ensure};
 use rusqlite::{Connection, OptionalExtension, Row, TransactionBehavior, params, params_from_iter};
 
-use crate::domain::automation::{
-    AutomationRule, AutomationRun, BackendConfig, BackendKind, RunStatus, Trigger, TriggerKind,
-};
-use crate::domain::document::{DOCUMENT_TYPE_MEMO, DocumentAsset, DocumentSnapshot};
-use crate::domain::lineage::LineageRecord;
-use crate::domain::meta::{DocumentMetadata, MetaAssignment, MetaSource, MetaTag};
-use crate::domain::mutation::{
-    MutationOperation, MutationRequest, MutationResult, MutationStatus, NullablePatch,
-};
-use crate::domain::ports::{
+use crate::ports::{
     AutomationRuleQuery, AutomationRunStore, AutomationStore, AutomationTx, DocumentQuery,
     DocumentStore, DocumentTx, LedgerTx, LineageQuery, MetaTagQuery, MutationStore,
     SettingsRepository, TagRepository,
 };
-use crate::domain::tag::{AutomationBinding, TagDefinition, TagKind, ViewBinding};
+use lineage_core::domain::automation::{
+    AutomationRule, AutomationRun, BackendConfig, BackendKind, RunStatus, Trigger, TriggerKind,
+};
+use lineage_core::domain::document::{DOCUMENT_TYPE_MEMO, DocumentAsset, DocumentSnapshot};
+use lineage_core::domain::lineage::LineageRecord;
+use lineage_core::domain::meta::{DocumentMetadata, MetaAssignment, MetaSource, MetaTag};
+use lineage_core::domain::mutation::{
+    MutationOperation, MutationRequest, MutationResult, MutationStatus, NullablePatch,
+};
+use lineage_core::domain::tag::{AutomationBinding, TagDefinition, TagKind, ViewBinding};
 
 /// ローカルとクラウドで共通のスキーマ。
 const SCHEMA_SQL: &str = include_str!("../../../db/schema.sql");
@@ -1447,8 +1447,8 @@ impl Database {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::lineage::{LineageInput, LineageLedger};
     use crate::infra::crypto::Sha256Hasher;
+    use lineage_core::domain::lineage::{LineageInput, LineageLedger};
 
     fn link(ledger: &LineageLedger<'_>, prev: Option<&LineageRecord>, id: &str) -> LineageRecord {
         ledger.append_next(
@@ -1708,7 +1708,7 @@ mod tests {
 
     #[test]
     fn rename_keeps_stable_id_and_soft_delete_keeps_assignments() {
-        use crate::domain::mutation::{
+        use lineage_core::domain::mutation::{
             MutationOperation, MutationRequest, NullablePatch, TagPatch,
         };
 
@@ -1773,7 +1773,7 @@ mod tests {
 
     #[test]
     fn memo_state_delta_is_idempotent_and_preserves_untouched_fields() {
-        use crate::domain::mutation::{MemoStatePatch, MutationOperation, MutationRequest};
+        use lineage_core::domain::mutation::{MemoStatePatch, MutationOperation, MutationRequest};
 
         let db = Database::open_in_memory().unwrap();
         db.conn
@@ -1882,7 +1882,7 @@ mod tests {
 
     #[test]
     fn memo_state_mutations_never_apply_to_non_memo_documents() {
-        use crate::domain::mutation::{MemoStatePatch, MutationOperation, MutationRequest};
+        use lineage_core::domain::mutation::{MemoStatePatch, MutationOperation, MutationRequest};
 
         let db = Database::open_in_memory().unwrap();
         db.conn
@@ -1925,7 +1925,7 @@ mod tests {
 
     #[test]
     fn archive_completed_tasks_only_archives_memos() {
-        use crate::domain::mutation::{MutationOperation, MutationRequest};
+        use lineage_core::domain::mutation::{MutationOperation, MutationRequest};
 
         let db = Database::open_in_memory().unwrap();
         db.conn
@@ -1972,7 +1972,7 @@ mod tests {
 
     #[test]
     fn tag_delta_updates_only_supplied_fields_and_bindings_atomically() {
-        use crate::domain::mutation::{
+        use lineage_core::domain::mutation::{
             MutationOperation, MutationRequest, NullablePatch, TagPatch, TagRecipe,
         };
 
@@ -2061,8 +2061,8 @@ mod tests {
 
     #[test]
     fn automation_rule_patch_does_not_replace_the_whole_rule() {
-        use crate::domain::automation::{BackendConfig, BackendKind, Trigger, TriggerKind};
-        use crate::domain::mutation::{
+        use lineage_core::domain::automation::{BackendConfig, BackendKind, Trigger, TriggerKind};
+        use lineage_core::domain::mutation::{
             AutomationRuleInput, AutomationRulePatch, MutationOperation, MutationRequest,
         };
 

@@ -1,7 +1,7 @@
 //! 既存インストールのデータ保存先を選ぶアプリ側のポリシー。
 //! パスは今回変更しない。SQLite アダプターには明示的に渡す。
 use anyhow::{Context, Result};
-use lineage_core::infra::sqlite::Database;
+use lineage_store::infra::sqlite::Database;
 use std::path::PathBuf;
 const DATABASE_FILE_NAME: &str = "lineage.db";
 

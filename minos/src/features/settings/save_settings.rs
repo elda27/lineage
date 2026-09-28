@@ -6,9 +6,9 @@ use anyhow::Result;
 
 use crate::domain::settings::Settings;
 use lineage_core::domain::mutation::{MutationOperation, MutationRequest};
-use lineage_core::domain::ports::MutationStore;
-use lineage_core::domain::shared::{Clock, IdGenerator};
-use lineage_core::features::mutation::ApplyMutation;
+use lineage_store::features::mutation::ApplyMutation;
+use lineage_store::ports::MutationStore;
+use lineage_store::ports::{Clock, IdGenerator};
 
 pub struct SaveSettings<'a> {
     store: &'a dyn MutationStore,

@@ -5,12 +5,12 @@
 
 use anyhow::Result;
 
-use crate::domain::automation::{AutomationRule, AutomationRun};
-use crate::domain::document::{DocumentAsset, DocumentSnapshot};
-use crate::domain::lineage::LineageRecord;
-use crate::domain::meta::{DocumentMetadata, MetaAssignment, MetaTag};
-use crate::domain::mutation::{MutationRequest, MutationResult};
-use crate::domain::tag::TagDefinition;
+use lineage_core::domain::automation::{AutomationRule, AutomationRun};
+use lineage_core::domain::document::{DocumentAsset, DocumentSnapshot};
+use lineage_core::domain::lineage::LineageRecord;
+use lineage_core::domain::meta::{DocumentMetadata, MetaAssignment, MetaTag};
+use lineage_core::domain::mutation::{MutationRequest, MutationResult};
+use lineage_core::domain::tag::TagDefinition;
 
 /// タグの参照境界。変更は `MutationStore` の typed delta を通す。
 pub trait TagRepository {
@@ -155,4 +155,15 @@ pub trait MutationStore {
         request: &MutationRequest,
         recorded_at: &str,
     ) -> Result<MutationResult>;
+}
+
+/// 現在時刻。テストから差し替えられるようにトレイトにする。
+pub trait Clock {
+    /// RFC3339 (UTC) 文字列を返す。DB にはこの形式で保存する。
+    fn now_rfc3339(&self) -> String;
+}
+
+/// 一意な ID を生成する。
+pub trait IdGenerator {
+    fn new_id(&self) -> String;
 }

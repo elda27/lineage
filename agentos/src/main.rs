@@ -22,11 +22,11 @@ use anyhow::{Context, Result, ensure};
 use clap::{Args, Parser, Subcommand};
 use lineage_core::domain::automation::{AutomationRule, AutomationRun, RunStatus};
 use lineage_core::domain::mutation::MutationRequest;
-use lineage_core::domain::ports::{AutomationRuleQuery, LineageQuery};
-use lineage_core::features::mutation::ApplyMutation;
-use lineage_core::infra::clock::{SystemClock, UuidGenerator};
-use lineage_core::infra::crypto::Sha256Hasher;
-use lineage_core::infra::sqlite::Database;
+use lineage_store::features::mutation::ApplyMutation;
+use lineage_store::infra::clock::{SystemClock, UuidGenerator};
+use lineage_store::infra::crypto::Sha256Hasher;
+use lineage_store::infra::sqlite::Database;
+use lineage_store::ports::{AutomationRuleQuery, LineageQuery};
 
 /// minos と同じ既定 workspace。
 const DEFAULT_WORKSPACE_ID: &str = "local";

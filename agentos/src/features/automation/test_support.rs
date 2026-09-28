@@ -12,10 +12,10 @@ use lineage_core::domain::automation::{
 };
 use lineage_core::domain::document::DocumentAsset;
 use lineage_core::domain::meta::MetaAssignment;
-use lineage_core::domain::ports::{DocumentStore, DocumentTx};
-use lineage_core::infra::clock::{FixedClock, SequentialIds};
-use lineage_core::infra::crypto::Sha256Hasher;
-use lineage_core::infra::sqlite::Database;
+use lineage_store::infra::clock::{FixedClock, SequentialIds};
+use lineage_store::infra::crypto::Sha256Hasher;
+use lineage_store::infra::sqlite::Database;
+use lineage_store::ports::{DocumentStore, DocumentTx};
 
 use super::Automation;
 

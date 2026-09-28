@@ -12,18 +12,18 @@ use anyhow::Result;
 
 use crate::domain::note::CaptureContext;
 use crate::domain::settings::Settings;
+use crate::features::capture::complete_meta_tag::CompleteMetaTag;
 use crate::features::capture::{CaptureMemo, CaptureMemoInput, CaptureMemoOutput};
 use crate::features::settings::{LoadSettings, SaveSettings};
 use crate::infra::attachments::with_images;
 use lineage_core::domain::document::DocumentSnapshot;
 use lineage_core::domain::lineage::VerifyResult;
 use lineage_core::domain::meta::{MetaAssignment, MetaSuggestion};
-use lineage_core::domain::ports::DocumentQuery;
-use lineage_core::features::lineage::VerifyLineage;
-use lineage_core::features::meta::CompleteMetaTag;
-use lineage_core::infra::clock::{SystemClock, UuidGenerator};
-use lineage_core::infra::crypto::Sha256Hasher;
-use lineage_core::infra::sqlite::Database;
+use lineage_store::features::lineage::VerifyLineage;
+use lineage_store::infra::clock::{SystemClock, UuidGenerator};
+use lineage_store::infra::crypto::Sha256Hasher;
+use lineage_store::infra::sqlite::Database;
+use lineage_store::ports::DocumentQuery;
 
 /// minos は単一利用者なので、既定のワークスペースは1つ固定。
 /// クラウド接続に切り替えるときは、ここが利用者ごとの workspace になる。

@@ -4,46 +4,35 @@
 [`adr/README.md`](./adr/README.md) と各 ADR を参照する。2026-08-20 の Design Doc は検討時点の
 snapshot であり、長期的な規範は accepted ADR を正本とする。
 
-## 実装状況（2026-09-13）
+## 実装状況（2026-09-28、Issue #52）
 
-PR #43は取り消し済み。Issue #47 / PR #48の配置整理に続き、Issue #49でMinos・Runnerの
-責務をShared Kernelから分離する。以下はこのブランチの実装状況である。
+#50のアプリ固有処理分離に続き、共有ドメインと保存処理をcrate境界で分離した。
 
-| 範囲 | 実装 |
-| --- | --- |
-| Shared Kernel | `domain/document`に完成済み記録・参照契約、`features/document`に記録とlineageの一括保存 |
-| Minos | `domain/note`に入力モデル・タイトル・foreground context、`features/capture`に入力確定、`domain/settings`・`features/settings`に設定解釈 |
-| Runner / AgentOS | `domain`に条件評価・prompt・推論port、`features/automation`に実行・cron、`infra`にHTTP・資格情報adapter |
-| 共有の自動化契約 | `AutomationRule` / `AutomationRun`の保存形式と、結果・lineage・runの同時確定はcoreで維持 |
-| 保存先 | 各アプリの`infra/storage`が既存の`%LOCALAPPDATA%/minos/lineage.db`を選択し、coreの`Database::open(path)`へ渡す |
-| FullOS UI | `pages`、`components/base`、`components/containers`、`features/*/components`へ整理済み。共通のタグ・検索UIは`components/containers`、補完hookは`shared/hooks` |
-| FullOS domain / infra | `fullos/core/domain`と`fullos/core/infra`に配置。`Memo`から`Note`への用語統一は後続 |
-| 検証 | Minosは既定の`desktop`を維持し、`--no-default-features`で入力・設定・添付をGUIなしでテスト可能。境界チェックとWindows通常構成をCIで検証 |
-| theme・compile-time capability・content/sync・Git/LFS・publication | 未実装の後続テーマ。この変更で完了とはしない |
+- `lineage-core/src/domain`: 共有記録・タグ・mutationのモデルと検証、補完順位、hash-chainの純粋な規則。
+- `lineage-store/src/features`: SaveDocument、CommitAutomationResult、ApplyMutation、VerifyLineageのI/O調整。
+- `lineage-store/src/ports`: repository、transaction、clock、ID取得の契約。
+- `lineage-store/src/infra`: SQLite、時計、UUID、SHA-256の実装。保存処理は各アプリへ複製しない。
+- Minos: 入力・設定・foreground context、補完候補の取得、カーソル・タグ入力確定、添付ファイル管理。
+- Runner: 自動化の条件評価・prompt・cron・推論・資格情報・実行制御。
 
-`SaveDocument`は入力文の解釈を行わず、アプリが準備したtitle/body/source/actorを保存する。
-添付・タグ・観測メタデータを含めて失敗時にロールバックする。`CommitAutomationResult`も
-結果記録とlineageだけを先に残さず、実行中のrunの確定まで同じtransactionに収める。
+依存はアプリ → lineage-store → lineage-core。アプリはドメイン型をcoreから直接利用できる。
+coreにはfeatures/infraもrepository portも置かない。純粋なhash計算の契約Hasherはcoreに残す。
+coreの通常依存はanyhow/serde/serde_jsonのみ。DB・GUI・HTTP・OS SDKなしでドメインを検証できる。
 
-共有SQLite adapterはschema・mutation・transactionの整合性を一か所で守るためcoreに残す。
-既定パス、添付コピー、OS連携、provider、資格情報、cronは共有保存の規則ではないため各アプリが所有する。
-DB schema、既存パス、JSONフィールド、CLI command、バイナリ名はこの変更で変えない。
-Rust APIの`capture` / `MemoSnapshot` / `MemoQuery`は`document` / `DocumentSnapshot` / `DocumentQuery`へ
-置き換え、旧APIへの互換aliasは作らない。
+記録・タグ・添付・lineage、また結果・lineage・runの一括確定と失敗時のrollbackは維持する。
+DB schema、保存先、CLI/JSON契約、バイナリ名は変更しない。
+FullOSは引き続きRunner経由で書き込みを行う。
 
-親Issue #22は継続する。実行ファイル名は現行の`minos`・`fullos`・`agentos`を使用する。
+FullOSのMemo→Note用語統一、theme/capability/content/sync/Git/LFS/publication、migration刷新は未完了。
+親Issue #22は継続する。
 
-### 確認コマンド
+### 検証
 
 - `python .github/scripts/check-boundaries.py`
-- `cargo test -p lineage-core -p agentos --locked`
+- `cargo test -p lineage-core -p lineage-store -p agentos --locked`
 - `cargo test -p minos --no-default-features --lib --locked`
 - Windows: `cargo check -p minos --all-targets --locked`
-- `cd fullos`で`pnpm build`
-
-LinuxでDBus開発ライブラリを持たない環境では、Runnerのテストに
-`cargo test -p agentos --features keyring/vendored --locked`を使える。これはテスト時の依存ビルド方法であり、
-製品の既定featureや資格情報の保存方式は変更しない。
+- `cd fullos && pnpm build`
 
 ## Components
 

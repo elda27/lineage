@@ -26,7 +26,7 @@ build-rust:
     cargo build --release -p minos -p agentos
 # Rust 側のテスト（ドメイン・hash-chain・自動化）。
 test-rust:
-    cargo test -p lineage-core -p agentos
+    cargo test -p lineage-core -p lineage-store -p agentos
 # VERSION を唯一の入力として、各パッケージのバージョン表記を同期する。
 [doc("VERSION の値を各マニフェストへ反映する")]
 version-sync:

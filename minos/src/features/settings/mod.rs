@@ -10,8 +10,8 @@ pub use save_settings::SaveSettings;
 mod tests {
     use super::*;
     use crate::domain::settings::Settings;
-    use lineage_core::infra::clock::{FixedClock, SequentialIds};
-    use lineage_core::infra::sqlite::Database;
+    use lineage_store::infra::clock::{FixedClock, SequentialIds};
+    use lineage_store::infra::sqlite::Database;
 
     #[test]
     fn round_trips_through_the_database() {

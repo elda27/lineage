@@ -6,8 +6,8 @@
 
 use anyhow::Result;
 
-use crate::domain::meta::{MetaSuggestion, rank_candidates};
-use crate::domain::ports::MetaTagQuery;
+use lineage_core::domain::meta::{MetaSuggestion, rank_candidates};
+use lineage_store::ports::MetaTagQuery;
 
 /// 補完候補として読み出す学習済みタグの上限。
 const TAG_POOL_LIMIT: usize = 500;
@@ -36,7 +36,7 @@ impl<'a> CompleteMetaTag<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::meta::MetaTag;
+    use lineage_core::domain::meta::MetaTag;
 
     struct StubTags(Vec<MetaTag>);
 

@@ -9,17 +9,6 @@ pub trait Hasher {
     fn sha256_hex(&self, input: &str) -> String;
 }
 
-/// 現在時刻。テストから差し替えられるようにトレイトにする。
-pub trait Clock {
-    /// RFC3339 (UTC) 文字列を返す。DB にはこの形式で保存する。
-    fn now_rfc3339(&self) -> String;
-}
-
-/// 一意な ID を生成する。
-pub trait IdGenerator {
-    fn new_id(&self) -> String;
-}
-
 /// ハッシュ対象の正規化。
 ///
 /// キー順を固定した JSON にすることで、同じ内容なら常に同じ文字列になる。

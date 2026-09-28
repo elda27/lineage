@@ -42,7 +42,7 @@ jobs:
           components: rustfmt
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all -- --check
-      - run: cargo test -p lineage-core -p agentos --locked
+      - run: cargo test -p lineage-core -p lineage-store -p agentos --locked
       - run: cargo test -p minos --no-default-features --lib --locked
       - name: Check normal Minos desktop and test targets
         run: cargo check -p minos --all-targets --locked
