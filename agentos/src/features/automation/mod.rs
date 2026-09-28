@@ -5,9 +5,12 @@
 //! - `backend` … 実行環境ごとに使えるバックエンドの線引き
 
 pub mod backend;
+pub mod commit_result;
 pub mod run;
 pub mod schedule;
 
+#[cfg(test)]
+mod persistence_tests;
 #[cfg(test)]
 mod test_support;
 

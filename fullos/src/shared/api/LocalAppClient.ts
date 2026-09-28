@@ -1,6 +1,4 @@
-import Database from "@tauri-apps/plugin-sql";
 import { invoke } from "@tauri-apps/api/core";
-import { join, localDataDir } from "@tauri-apps/api/path";
 
 import { ListMemos, DEFAULT_MEMO_LIMIT } from "@core/features/memo/ListMemos";
 import { SuggestMetaTags, DEFAULT_SUGGESTION_LIMIT } from "@core/features/meta/SuggestMetaTags";
@@ -39,10 +37,6 @@ import { applyLocalMutationOrThrow } from "./localMutation";
 /** minos がローカルで使う workspace（minos/src/app.rs の DEFAULT_WORKSPACE_ID）。 */
 export const DEFAULT_WORKSPACE_ID = "local";
 
-/** minos の DB は `%LOCALAPPDATA%\minos\lineage.db`（lineage-core の sqlite.rs）。 */
-const MINOS_DIRECTORY = "minos";
-const DATABASE_FILE_NAME = "lineage.db";
-
 /** 実行履歴の既定の取得件数。 */
 const DEFAULT_RUN_LIMIT = 50;
 
@@ -52,10 +46,13 @@ const DEFAULT_RUN_LIMIT = 50;
  * minos と同じ SQLite ファイルを開き、application を in-process で呼ぶ。
  *
  * DB の書き込みはすべて Rust の差分 mutation API に委ねる。
- * WebView は plugin-sql の読み出し権限だけを持ち、SQL の execute は呼ばない。
+ * 読み出しもRustのread-only queryへ渡し、Runnerは起動しない。
  */
 export async function createLocalAppClient(): Promise<ApplicationPort> {
-  const db = await Database.load(`sqlite:${await minosDatabasePath()}`);
+  const db = {
+    select: <T>(query: string, bindValues: unknown[] = []) =>
+      invoke<T>("local_query", { query, bindValues }),
+  };
   const memos = new SqliteMemoRepository(db);
   const memoStates = new SqliteMemoStateRepository(db);
   const metaTags = new SqliteMetaTagRepository(db);
@@ -213,14 +210,4 @@ async function runAutomation(
   const prompt = await invoke<string>("automation_render", { ruleId, memoId });
   const text = await invoke<string>("browser_agent_run", { profile, prompt });
   return invoke<AutomationRun>("automation_record", { ruleId, memoId, text });
-}
-
-/**
- * minos の DB の絶対パス。
- *
- * plugin-sql は接続文字列のパスをアプリのデータディレクトリへ join するが、
- * 絶対パスを渡せばそちらが優先されるので、minos の DB を直接開ける。
- */
-async function minosDatabasePath(): Promise<string> {
-  return join(await localDataDir(), MINOS_DIRECTORY, DATABASE_FILE_NAME);
 }

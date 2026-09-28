@@ -21,14 +21,6 @@ fn browser_rendered(app: tauri::AppHandle) {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        // 記録の読み出しは webview 側（core/infra/persistence/sqlite）が行う。
-        // plugin-sql は select 専用で、書き込みは mutation コマンドから agentos を
-        // 経由して Rust 側の lineage-store application service に渡す。
-        //
-        // ただし自動化だけは例外で、lineage(links) への追記を伴うため同梱の agentos に
-        // 委ねる（automation.rs）。webview から書けてしまうと、hash-chain の作り方が
-        // minos / agentos / fullos で分岐しうる。
-        .plugin(tauri_plugin_sql::Builder::default().build())
         .setup(|app| {
             // GitHub Release の latest.json を見に行く自動更新。
             // エンドポイントと公開鍵は tauri.conf.json の plugins.updater。
@@ -51,6 +43,7 @@ pub fn run() {
             automation::credential_delete,
             automation::verify_lineage,
             mutation::local_mutation_apply,
+            mutation::local_query,
             browser::browser_agent_run,
             schedule::schedule_status,
             schedule::schedule_register,

@@ -8,7 +8,6 @@
     "core:window:allow-destroy",
     "opener:default",
     "updater:default",
-    "process:allow-restart",
-    "sql:default"
+    "process:allow-restart"
   ]
 }

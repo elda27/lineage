@@ -124,3 +124,12 @@ ownership が分裂するためである。
 共通の保存transactionとrollbackを維持し、アプリごとに複製しない。
 補完順位はcore、候補取得・カーソル位置・入力確定はアプリが所有する。
 この配置変更はschema migration、content/sync実装の完了を意味しない。
+
+
+## 2026-09-28: #54 責務境界の見直し
+
+FullOSの通常の読み書きはTauriのRust内で完結する。plugin-sql/sqlxを廃止し、SQLite実装をrusqliteへ統一する。自動化実行はRunnerが所有する。外部ブラウザ応答のrender/record経路は既存の手動結果入力として残る。
+
+lineage-storeの独立性を再評価した結果、Minosの記録保存、Runnerの結果保存、FullOS/CLIの差分更新で必要なSQLite実装・port・原子的な保存プリミティブのみを共有する。アプリへの同一SQLite/hash-chain実装の複製を避ける実際の利用があるため、この範囲でcrateを維持する。Automation結果の検証と完了処理CommitAutomationResultはRunnerへ移動した。coreにはI/Oを戻さない。
+
+Runnerのget/notes/runsはJSONで外部から参照でき、applyは既存のtyped mutation JSONを標準入力またはファイルから受け取る。recordは外部結果登録の入口。内部から自身のCLIを再起動しない。改称は#29で別途扱う。

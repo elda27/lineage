@@ -43,6 +43,62 @@ impl Database {
         Self::from_connection(conn)
     }
 
+    /// JSON read boundary for the desktop UI. Only SQLite read-only SELECT/WITH statements are accepted.
+    pub fn select_json(
+        &self,
+        query: &str,
+        values: &[serde_json::Value],
+    ) -> Result<Vec<serde_json::Value>> {
+        use rusqlite::types::{Value as SqlValue, ValueRef};
+        let parameters: Vec<SqlValue> = values
+            .iter()
+            .map(|value| match value {
+                serde_json::Value::Null => Ok(SqlValue::Null),
+                serde_json::Value::Bool(v) => Ok(SqlValue::Integer(i64::from(*v))),
+                serde_json::Value::Number(v) => v
+                    .as_i64()
+                    .map(SqlValue::Integer)
+                    .or_else(|| v.as_f64().map(SqlValue::Real))
+                    .ok_or_else(|| anyhow::anyhow!("invalid number")),
+                serde_json::Value::String(v) => Ok(SqlValue::Text(v.clone())),
+                _ => anyhow::bail!("SQL parameters must be scalar"),
+            })
+            .collect::<Result<_>>()?;
+        let conn = self.conn.borrow();
+        // Do not accept PRAGMA/ATTACH or other statements with side effects.
+        let first = query
+            .trim_start()
+            .split_whitespace()
+            .next()
+            .unwrap_or("")
+            .to_ascii_uppercase();
+        anyhow::ensure!(first == "SELECT" || first == "WITH", "read queries only");
+        let mut statement = conn.prepare(query)?;
+        anyhow::ensure!(statement.readonly(), "read queries only");
+        let columns: Vec<String> = statement
+            .column_names()
+            .iter()
+            .map(|v| v.to_string())
+            .collect();
+        let rows = statement.query_map(params_from_iter(parameters), |row| {
+            let mut object = serde_json::Map::new();
+            for (index, name) in columns.iter().enumerate() {
+                let value = match row.get_ref(index)? {
+                    ValueRef::Null => serde_json::Value::Null,
+                    ValueRef::Integer(v) => serde_json::json!(v),
+                    ValueRef::Real(v) => serde_json::json!(v),
+                    ValueRef::Text(v) => {
+                        serde_json::Value::String(String::from_utf8_lossy(v).into_owned())
+                    }
+                    ValueRef::Blob(v) => serde_json::json!(v),
+                };
+                object.insert(name.clone(), value);
+            }
+            Ok(serde_json::Value::Object(object))
+        })?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
     #[cfg(any(test, feature = "testing"))]
     pub fn open_in_memory() -> Result<Self> {
         Self::from_connection(Connection::open_in_memory()?)
@@ -2122,5 +2178,27 @@ mod tests {
                 "patched".into()
             )
         );
+    }
+}
+
+#[cfg(test)]
+mod read_boundary_tests {
+    use super::*;
+    #[test]
+    fn query_boundary_binds_values_and_rejects_writes() {
+        let db = Database::open_in_memory().unwrap();
+        assert_eq!(
+            db.select_json("SELECT ? AS value", &[serde_json::json!("hello")])
+                .unwrap(),
+            vec![serde_json::json!({"value":"hello"})]
+        );
+        for sql in [
+            "DELETE FROM documents",
+            "PRAGMA user_version = 9",
+            "ATTACH DATABASE ':memory:' AS other",
+            "WITH x AS (SELECT 1) DELETE FROM documents",
+        ] {
+            assert!(db.select_json(sql, &[]).is_err(), "{sql}");
+        }
     }
 }
