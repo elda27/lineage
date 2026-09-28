@@ -14,7 +14,7 @@ use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::domain::automation::{InferenceOutcome, InferenceRequest};
+use crate::domain::inference::{InferenceOutcome, InferenceRequest};
 use crate::domain::ports::{CredentialStore, InferenceBackend};
 
 /// この実装が扱える provider。
@@ -47,7 +47,7 @@ impl<'a> AnthropicBackend<'a> {
     }
 
     /// 送信先を差し替える（テストでモックサーバへ向けるため）。
-    #[cfg(any(test, feature = "testing"))]
+    #[cfg(test)]
     pub fn with_endpoint(mut self, endpoint: impl Into<String>) -> Self {
         self.endpoint = endpoint.into();
         self

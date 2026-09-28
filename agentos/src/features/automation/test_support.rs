@@ -2,18 +2,20 @@
 //!
 //! `run` と `backend` の両方がルールを組み立てるので、置き場をここ1つにする。
 
+use crate::domain::inference::InferenceOutcome;
+use crate::domain::inference::InferenceRequest;
+use crate::domain::ports::InferenceBackend;
 use anyhow::{Result, bail};
 
-use crate::domain::automation::{
-    AutomationRule, BackendConfig, BackendKind, InferenceOutcome, InferenceRequest, Trigger,
-    TriggerKind,
+use lineage_core::domain::automation::{
+    AutomationRule, BackendConfig, BackendKind, Trigger, TriggerKind,
 };
-use crate::domain::capture::DocumentAsset;
-use crate::domain::meta::MetaAssignment;
-use crate::domain::ports::{CaptureStore, CaptureTx, InferenceBackend};
-use crate::infra::clock::{FixedClock, SequentialIds};
-use crate::infra::crypto::Sha256Hasher;
-use crate::infra::sqlite::Database;
+use lineage_core::domain::document::DocumentAsset;
+use lineage_core::domain::meta::MetaAssignment;
+use lineage_core::domain::ports::{DocumentStore, DocumentTx};
+use lineage_core::infra::clock::{FixedClock, SequentialIds};
+use lineage_core::infra::crypto::Sha256Hasher;
+use lineage_core::infra::sqlite::Database;
 
 use super::Automation;
 
@@ -60,8 +62,17 @@ impl Fixture {
 
     /// 記録を1件書く（minos が保存したものに相当）。
     pub fn write_memo(&self, id: &str, body: &str, metas: &[MetaAssignment]) {
-        let document = DocumentAsset::memo(id, "ws", body, "2026-08-13T08:00:00Z");
-        CaptureStore::transact(&self.db, &mut |tx: &mut dyn CaptureTx| {
+        let document = DocumentAsset {
+            id: id.into(),
+            workspace_id: "ws".into(),
+            title: body.lines().next().unwrap().into(),
+            body_text: body.into(),
+            blob_uri: None,
+            document_type: "memo".into(),
+            created_at: "2026-08-13T08:00:00Z".into(),
+            updated_at: "2026-08-13T08:00:00Z".into(),
+        };
+        DocumentStore::transact(&self.db, &mut |tx: &mut dyn DocumentTx| {
             tx.ensure_workspace("ws", "minos", "2026-08-13T08:00:00Z")?;
             tx.insert_document(&document)?;
             for (index, meta) in metas.iter().enumerate() {

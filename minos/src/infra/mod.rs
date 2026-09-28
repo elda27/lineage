@@ -1,7 +1,7 @@
-//! minos 固有のインフラ層。
-//!
-//! ドメイン・ユースケース・永続化は lineage-core が持つ。ここに残るのは
-//! トレイ常駐やフォアグラウンド取得のような、OS に直接触る処理だけ。
-
+//! Minos のファイル保存・OS 連携。
+pub mod attachments;
+#[cfg(feature = "desktop")]
 pub mod logging;
+pub mod storage;
+#[cfg(feature = "desktop")]
 pub mod system;

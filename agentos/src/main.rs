@@ -15,16 +15,16 @@
 use std::io::{Read, Write};
 use std::path::PathBuf;
 
+use agentos::features::automation::{Automation, reject_browser_backend};
+use agentos::infra::anthropic::AnthropicBackend;
+use agentos::infra::credentials::OsCredentialStore;
 use anyhow::{Context, Result, ensure};
 use clap::{Args, Parser, Subcommand};
 use lineage_core::domain::automation::{AutomationRule, AutomationRun, RunStatus};
 use lineage_core::domain::mutation::MutationRequest;
 use lineage_core::domain::ports::{AutomationRuleQuery, LineageQuery};
-use lineage_core::features::automation::{Automation, reject_browser_backend};
 use lineage_core::features::mutation::ApplyMutation;
-use lineage_core::infra::anthropic::AnthropicBackend;
 use lineage_core::infra::clock::{SystemClock, UuidGenerator};
-use lineage_core::infra::credentials::OsCredentialStore;
 use lineage_core::infra::crypto::Sha256Hasher;
 use lineage_core::infra::sqlite::Database;
 
@@ -231,7 +231,7 @@ impl Session {
         let database = match &global.db {
             Some(path) => Database::open(path)
                 .with_context(|| format!("DB を開けません: {}", path.display()))?,
-            None => Database::open_default()?,
+            None => agentos::infra::storage::open_default()?,
         };
         Ok(Self {
             database,
@@ -482,8 +482,8 @@ fn exit_code_for(run: &AutomationRun) -> i32 {
 
 #[cfg(test)]
 mod tests {
-    use clap::CommandFactory;
     use super::*;
+    use clap::CommandFactory;
 
     #[test]
     fn the_command_line_definition_is_valid() {

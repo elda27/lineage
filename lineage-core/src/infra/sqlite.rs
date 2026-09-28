@@ -4,61 +4,39 @@
 //! ここに閉じ込めるのは SQL だけで、鎖の作り方（hash-chain）は domain 側にある。
 
 use std::cell::RefCell;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use anyhow::{Context, Result, ensure};
 use rusqlite::{Connection, OptionalExtension, Row, TransactionBehavior, params, params_from_iter};
 
 use crate::domain::automation::{
-    AutomationRule, AutomationRun, BackendConfig, BackendKind, MemoSnapshot, RunStatus, Trigger,
-    TriggerKind,
+    AutomationRule, AutomationRun, BackendConfig, BackendKind, RunStatus, Trigger, TriggerKind,
 };
-use crate::domain::capture::{DOCUMENT_TYPE_MEMO, DocumentAsset};
+use crate::domain::document::{DOCUMENT_TYPE_MEMO, DocumentAsset, DocumentSnapshot};
 use crate::domain::lineage::LineageRecord;
 use crate::domain::meta::{DocumentMetadata, MetaAssignment, MetaSource, MetaTag};
 use crate::domain::mutation::{
     MutationOperation, MutationRequest, MutationResult, MutationStatus, NullablePatch,
 };
 use crate::domain::ports::{
-    AutomationRuleQuery, AutomationRunStore, AutomationStore, AutomationTx, CaptureStore,
-    CaptureTx, LedgerTx, LineageQuery, MemoQuery, MetaTagQuery, MutationStore, SettingsRepository,
-    TagRepository,
+    AutomationRuleQuery, AutomationRunStore, AutomationStore, AutomationTx, DocumentQuery,
+    DocumentStore, DocumentTx, LedgerTx, LineageQuery, MetaTagQuery, MutationStore,
+    SettingsRepository, TagRepository,
 };
 use crate::domain::tag::{AutomationBinding, TagDefinition, TagKind, ViewBinding};
 
 /// ローカルとクラウドで共通のスキーマ。
 const SCHEMA_SQL: &str = include_str!("../../../db/schema.sql");
 
-/// ローカル DB のファイル名。
-const DATABASE_FILE_NAME: &str = "lineage.db";
-
 /// 接続を1本だけ持つローカルストア。
 ///
-/// 各 minos / agentos プロセス内では接続は1本で足りる。プロセス間の競合は WAL、
-/// busy timeout、immediate transaction で調停する。gpui のメインスレッドから同期的に
-/// 呼ぶ前提のため、プロセス内の所有には `RefCell` を使う。
+/// プロセス間の競合は WAL、busy timeout、immediate transaction で調停する。
+/// 接続は作成したスレッドで同期的に使い、所有には `RefCell` を使う。
 pub struct Database {
     conn: RefCell<Connection>,
 }
 
 impl Database {
-    /// 既定のデータディレクトリ（`%LOCALAPPDATA%\minos`）の DB を開く。
-    pub fn open_default() -> Result<Self> {
-        let path = Self::default_path()?;
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).with_context(|| {
-                format!("データディレクトリを作成できません: {}", parent.display())
-            })?;
-        }
-        Self::open(&path)
-    }
-
-    pub fn default_path() -> Result<PathBuf> {
-        let dir = dirs::data_local_dir()
-            .context("ローカルアプリケーションデータのディレクトリを特定できません")?;
-        Ok(dir.join("minos").join(DATABASE_FILE_NAME))
-    }
-
     pub fn open(path: &Path) -> Result<Self> {
         let conn = Connection::open(path)
             .with_context(|| format!("DB を開けません: {}", path.display()))?;
@@ -223,12 +201,12 @@ fn upgrade_local_mutations(tx: &rusqlite::Transaction<'_>) -> Result<()> {
     Ok(())
 }
 
-impl CaptureStore for Database {
-    fn transact(&self, work: &mut dyn FnMut(&mut dyn CaptureTx) -> Result<()>) -> Result<()> {
+impl DocumentStore for Database {
+    fn transact(&self, work: &mut dyn FnMut(&mut dyn DocumentTx) -> Result<()>) -> Result<()> {
         let mut conn = self.conn.borrow_mut();
         let tx = conn.transaction()?;
         {
-            let mut capture_tx = SqliteCaptureTx { tx: &tx };
+            let mut capture_tx = SqliteDocumentTx { tx: &tx };
             work(&mut capture_tx)?;
         }
         tx.commit()?;
@@ -236,7 +214,7 @@ impl CaptureStore for Database {
     }
 }
 
-struct SqliteCaptureTx<'a> {
+struct SqliteDocumentTx<'a> {
     tx: &'a rusqlite::Transaction<'a>,
 }
 
@@ -268,7 +246,7 @@ mod ledger_sql {
 
     pub fn update_document(tx: &rusqlite::Transaction<'_>, document: &DocumentAsset) -> Result<()> {
         let changed = tx.execute(
-            "UPDATE documents SET title=?2, body_text=?3, updated_at=?4
+            "UPDATE documents SET title=?2, body_text=?3, updated_at=?4, blob_uri=?7
              WHERE id=?1 AND workspace_id=?5 AND document_type=?6",
             params![
                 document.id,
@@ -276,10 +254,11 @@ mod ledger_sql {
                 document.body_text,
                 document.updated_at,
                 document.workspace_id,
-                DOCUMENT_TYPE_MEMO
+                document.document_type,
+                document.blob_uri
             ],
         )?;
-        anyhow::ensure!(changed == 1, "追記先のメモが見つかりません");
+        anyhow::ensure!(changed == 1, "更新対象の記録が見つかりません");
         Ok(())
     }
 
@@ -324,7 +303,7 @@ mod ledger_sql {
     }
 }
 
-impl LedgerTx for SqliteCaptureTx<'_> {
+impl LedgerTx for SqliteDocumentTx<'_> {
     fn insert_document(&mut self, document: &DocumentAsset) -> Result<()> {
         ledger_sql::insert_document(self.tx, document)
     }
@@ -342,7 +321,7 @@ impl LedgerTx for SqliteCaptureTx<'_> {
     }
 }
 
-impl CaptureTx for SqliteCaptureTx<'_> {
+impl DocumentTx for SqliteDocumentTx<'_> {
     fn ensure_workspace(&mut self, id: &str, name: &str, now: &str) -> Result<()> {
         self.tx.execute(
             "INSERT OR IGNORE INTO workspaces (id, name, owner_user_id, created_at)
@@ -1092,18 +1071,23 @@ impl LedgerTx for SqliteAutomationTx<'_> {
 
 impl AutomationTx for SqliteAutomationTx<'_> {
     fn finish_run(&mut self, run: &AutomationRun) -> Result<()> {
-        self.tx.execute(
+        let changed = self.tx.execute(
             "UPDATE automation_runs
                 SET status = ?2, result_document_id = ?3, error = ?4, finished_at = ?5
-              WHERE id = ?1",
+              WHERE id = ?1 AND workspace_id = ?6 AND rule_id = ?7
+                AND source_document_id = ?8 AND status = 'running'",
             params![
                 run.id,
                 run.status.as_str(),
                 run.result_document_id,
                 run.error,
                 run.finished_at,
+                run.workspace_id,
+                run.rule_id,
+                run.source_document_id
             ],
         )?;
+        ensure!(changed == 1, "確定対象の実行中記録が見つかりません");
         Ok(())
     }
 }
@@ -1177,7 +1161,7 @@ impl AutomationRunStore for Database {
         workspace_id: &str,
         rule_id: &str,
         scan_limit: usize,
-    ) -> Result<Vec<MemoSnapshot>> {
+    ) -> Result<Vec<DocumentSnapshot>> {
         let conn = self.conn.borrow();
         // 「成功済み or 実行中」の run があるものを除く。失敗した記録は残るので、
         // 鍵の未登録や通信断のような一時的な失敗は次の poll で自然に再試行される。
@@ -1220,7 +1204,7 @@ impl AutomationRunStore for Database {
         bases
             .into_iter()
             .map(|(id, title, body_text, created_at)| {
-                Ok(MemoSnapshot {
+                Ok(DocumentSnapshot {
                     metas: metas_of(&conn, &id)?,
                     id,
                     title,
@@ -1245,8 +1229,8 @@ impl AutomationRunStore for Database {
     }
 }
 
-impl MemoQuery for Database {
-    fn get(&self, workspace_id: &str, document_id: &str) -> Result<Option<MemoSnapshot>> {
+impl DocumentQuery for Database {
+    fn get(&self, workspace_id: &str, document_id: &str) -> Result<Option<DocumentSnapshot>> {
         let conn = self.conn.borrow();
         let base = conn
             .query_row(
@@ -1267,7 +1251,7 @@ impl MemoQuery for Database {
         let Some((id, title, body_text, created_at)) = base else {
             return Ok(None);
         };
-        Ok(Some(MemoSnapshot {
+        Ok(Some(DocumentSnapshot {
             metas: metas_of(&conn, &id)?,
             id,
             title,
@@ -1276,7 +1260,7 @@ impl MemoQuery for Database {
         }))
     }
 
-    fn recent(&self, workspace_id: &str, limit: usize) -> Result<Vec<MemoSnapshot>> {
+    fn recent(&self, workspace_id: &str, limit: usize) -> Result<Vec<DocumentSnapshot>> {
         let conn = self.conn.borrow();
         let mut statement = conn.prepare(
             "SELECT id, title, body_text, created_at FROM documents d
@@ -1301,7 +1285,7 @@ impl MemoQuery for Database {
         drop(statement);
         rows.into_iter()
             .map(|(id, title, body, created_at)| {
-                Ok(MemoSnapshot {
+                Ok(DocumentSnapshot {
                     metas: metas_of(&conn, &id)?,
                     id,
                     title,
@@ -1672,7 +1656,7 @@ mod tests {
         let hasher = Sha256Hasher;
         let ledger = LineageLedger::new(&hasher);
 
-        CaptureStore::transact(&db, &mut |tx: &mut dyn CaptureTx| {
+        DocumentStore::transact(&db, &mut |tx: &mut dyn DocumentTx| {
             tx.ensure_workspace("ws", "minos", "2026-08-08T00:00:00Z")?;
             let first = link(&ledger, None, "a");
             tx.append_link(&first)?;
@@ -1695,7 +1679,7 @@ mod tests {
         let hasher = Sha256Hasher;
         let ledger = LineageLedger::new(&hasher);
 
-        let result = CaptureStore::transact(&db, &mut |tx: &mut dyn CaptureTx| {
+        let result = DocumentStore::transact(&db, &mut |tx: &mut dyn DocumentTx| {
             tx.ensure_workspace("ws", "minos", "2026-08-08T00:00:00Z")?;
             tx.append_link(&link(&ledger, None, "a"))?;
             anyhow::bail!("途中で失敗");
@@ -1711,7 +1695,7 @@ mod tests {
         let hasher = Sha256Hasher;
         let ledger = LineageLedger::new(&hasher);
 
-        let result = CaptureStore::transact(&db, &mut |tx: &mut dyn CaptureTx| {
+        let result = DocumentStore::transact(&db, &mut |tx: &mut dyn DocumentTx| {
             let first = link(&ledger, None, "a");
             tx.append_link(&first)?;
             // 同じ seq をもう一度追記しようとする（＝鎖の分岐）。

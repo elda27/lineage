@@ -3,27 +3,35 @@ name = "minos"
 version = "0.0.8"
 edition = "2024"
 
+[features]
+default = ["desktop"]
+desktop = ["dep:gpui", "dep:gpui_platform", "dep:gpui-component", "dep:async-channel", "dep:env_logger", "dep:log", "dep:lsp-types", "dep:tray-icon", "dep:windows"]
+
+[[bin]]
+name = "minos"
+path = "src/main.rs"
+required-features = ["desktop"]
+
 [dependencies]
-# ドメイン・ユースケース・永続化は共有クレートに置いてある。
-# minos に残るのは gpui の画面と OS 常駐まわりだけ。
+# 共有記録の保存境界。入力・設定の解釈は Minos が所有する。
 lineage-core = { path = "../lineage-core" }
 
 # gpui = "0.2.2"
 # gpui-component = "0.5.1"
-gpui = { git = "https://github.com/zed-industries/zed" }
-gpui_platform = { git = "https://github.com/zed-industries/zed", features = [
+gpui = { optional = true, git = "https://github.com/zed-industries/zed" }
+gpui_platform = { optional = true, git = "https://github.com/zed-industries/zed", features = [
   "font-kit",
 ] }
-gpui-component = { git = "https://github.com/longbridge/gpui-component" }
+gpui-component = { optional = true, git = "https://github.com/longbridge/gpui-component" }
 
 anyhow = { workspace = true }
 dirs = { workspace = true }
-async-channel = "2"
-env_logger = "0.11"
-log = "0.4"
+async-channel = { version = "2", optional = true }
+env_logger = { version = "0.11", optional = true }
+log = { version = "0.4", optional = true }
 # gpui-component の入力補完 API が使う型。バージョンを合わせる必要がある。
-lsp-types = { version = "0.97", features = ["proposed"] }
-tray-icon = "0.24"
+lsp-types = { optional = true, version = "0.97", features = ["proposed"] }
+tray-icon = { version = "0.24", optional = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
@@ -31,7 +39,7 @@ uuid = { workspace = true }
 lineage-core = { path = "../lineage-core", features = ["testing"] }
 
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.62", features = [
+windows = { optional = true, version = "0.62", features = [
   "Win32_Foundation",
   "Win32_Graphics_Gdi",
   "Win32_Security",

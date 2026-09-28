@@ -2,7 +2,7 @@
 
 use anyhow::{Result, bail};
 
-use crate::domain::automation::{AutomationRule, BackendKind};
+use lineage_core::domain::automation::{AutomationRule, BackendKind};
 
 /// ブラウザ方式のルールを、ブラウザを持たない実行環境で走らせようとしたときのエラー。
 ///
@@ -20,9 +20,9 @@ pub fn reject_browser_backend(rule: &AutomationRule) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use crate::domain::automation::{Trigger, TriggerKind};
-    use crate::features::automation::test_support::rule;
     use super::*;
+    use crate::features::automation::test_support::rule;
+    use lineage_core::domain::automation::{Trigger, TriggerKind};
 
     #[test]
     fn a_browser_rule_is_rejected_where_there_is_no_webview() {

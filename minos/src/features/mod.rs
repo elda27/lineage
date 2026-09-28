@@ -1,7 +1,5 @@
-//! 機能ごとの presentation 層（画面と、その画面のためのサービス）。
-//!
-//! ここは `Services`（composition root）越しにユースケースを呼ぶだけで、
-//! SQL も hash-chain も知らない。
-
+//! Minos の入力・設定ユースケースと画面。
 pub mod capture;
+pub mod settings;
+#[cfg(feature = "desktop")]
 pub mod window;
